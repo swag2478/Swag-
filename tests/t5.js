@@ -1,0 +1,11 @@
+const {open}=require('./harness');
+(async()=>{let {browser,page,errors}=await open();
+await page.click('[data-tab=annales]');await page.waitForTimeout(300);await page.screenshot({path:'p-annales.png'});await browser.close();
+({browser,page,errors}=await open({vp:{width:390,height:844},dark:true}));
+console.log('sw',await page.evaluate(()=>[document.documentElement.scrollWidth,innerWidth]));
+await page.evaluate(()=>startSeries(itemsOf(S.annales.get('bpedia25')),'Pédiatrie','train'));await page.waitForSelector('#qc canvas');await page.waitForTimeout(400);
+await page.screenshot({path:'p-phone-play.png'});
+console.log('sw',await page.evaluate(()=>[document.documentElement.scrollWidth,innerWidth]));
+await page.click('[data-tab=annales]');await page.waitForTimeout(300);await page.screenshot({path:'p-phone-annales.png'});
+console.log('sw',await page.evaluate(()=>[document.documentElement.scrollWidth,innerWidth]));
+console.log(errors.filter(e=>!e.includes('ERR_FAILED')));await browser.close()})();

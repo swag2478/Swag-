@@ -1,0 +1,272 @@
+/* ---------- lecture des corrigés v3 ----------
+   Formats reconnus :
+   1 « UNESS » : Question N : (Type: X) ; lignes ☑/☐/◎/◉ + mention (Valide, Faux, Indispensable, Inacceptable, (n Experts)) + lettre ;
+     justifications en petit corps sous les propositions ; « Commentaire pédagogique de correction » ; QROC « Réponses valides ».
+   2 « Réponse attendue » : Question N + type en toutes lettres à droite ; lettre, case ■/☑, texte ; QROC « Réponse attendue » ; TCS avec réponses des experts.
+   Sortie par question : segs (zones à afficher), opts (cases cliquables), hide (zones masquées), qroc (réponses acceptées), type, k.
+*/
+const PARSER_VERSION=3;
+const GLYPHS="☑☐◎◉■□✓✔●○";
+const isGlyph=s=>s.length===1&&GLYPHS.includes(s);
+const CHECKED=s=>s==="☑"||s==="◉"||s==="✓"||s==="✔"||s==="●";
+const LABEL_RE=/^(Valide|Faux|Indispensable|Inacceptable|Acceptable|Neutre)$/i;
+const COUNT_RE=/^\(?\d+$|^\(?\d+\s*Experts?\)?$|^Experts?\)$/i;
+const LETTER_RE=/^([A-Z])\.?$/;
+const SUPPORTED=new Set(["QRU","QRM","QRP","QRPL","QROC","TCS"]);
+function typeFromLabel(t){t=t.toLowerCase();if(/concordance/.test(t))return"TCS";if(/d[ée]roulant/.test(t))return"QRP";if(/zone/.test(t))return"ZONE";if(/ouverte|courte/.test(t))return"QROC";if(/longue|liste/.test(t))return"QRPL";if(/pr[ée]cis/.test(t))return"QRP";if(/unique/.test(t))return"QRU";if(/multiples|réponses/.test(t))return"QRM";return"?"}
+function normType(t){t=(t||"").toUpperCase();if(t==="QTCS"||t==="TCS")return"TCS";if(t==="QZONE")return"ZONE";return t}
+
+async function readPages(bytes){
+  const doc=await pdfjsLib.getDocument({data:bytes.slice()}).promise;const out=[];
+  for(let p=1;p<=doc.numPages;p++){
+    const page=await doc.getPage(p),vp=page.getViewport({scale:1});
+    const items=(await page.getTextContent()).items.filter(it=>it.str&&it.str.trim()&&!/^[\uE000-\uF8FF\s]*$/.test(it.str)).map(it=>{
+      const t=pdfjsLib.Util.transform(vp.transform,it.transform),h=it.height||Math.hypot(t[2],t[3]);
+      return{s:it.str.trim(),x:t[4],y:t[5],w:it.width,h,top:t[5]-h*.95,bot:t[5]+h*.28,p};});
+    out.push({p,w:vp.width,h:vp.height,items:mergeChars(items)});
+  }
+  return out;
+}
+function makeRaster(bytes){ // rendu des pages pour lire la couleur des cases (navigateur)
+  let docP=null;const cache=new Map();
+  return p=>{if(!cache.has(p))cache.set(p,(async()=>{docP=docP||pdfjsLib.getDocument({data:bytes.slice()}).promise;const doc=await docP;const page=await doc.getPage(p);const scale=2;const vp=page.getViewport({scale});
+    const cv=document.createElement("canvas");cv.width=Math.ceil(vp.width);cv.height=Math.ceil(vp.height);const ctx=cv.getContext("2d",{willReadFrequently:true});ctx.fillStyle="#fff";ctx.fillRect(0,0,cv.width,cv.height);
+    await page.render({canvasContext:ctx,viewport:vp}).promise;const im=ctx.getImageData(0,0,cv.width,cv.height);return{data:im.data,width:cv.width,height:cv.height,scale}})());return cache.get(p)};
+}
+function mergeChars(items){ // PDF où chaque caractère est un élément (impressions iOS) : on reconstitue les mots et les lignes
+  if(items.length<20)return items;const lens=items.map(i=>i.s.length).sort((a,b)=>a-b);if(lens[Math.floor(lens.length/2)]>1.5)return items;
+  const sorted=items.slice().sort((a,b)=>Math.abs(a.y-b.y)<2?a.x-b.x:a.y-b.y);const out=[];let cur=null;
+  for(const it of sorted){
+    const g=isGlyph(it.s);
+    if(cur&&!g&&!cur.g&&Math.abs(cur.y-it.y)<2&&Math.abs(cur.h-it.h)<2&&it.x-(cur.x+cur.w)<cur.h*.6&&it.x>=cur.x){
+      const gap=it.x-(cur.x+cur.w);cur.s+=(gap>cur.h*.15?" ":"")+it.s;cur.w=it.x+it.w-cur.x;cur.top=Math.min(cur.top,it.top);cur.bot=Math.max(cur.bot,it.bot);continue}
+    if(cur)out.push(cur);cur={...it,g};
+  }
+  if(cur)out.push(cur);out.forEach(o=>delete o.g);return out;
+}
+const R=(p,l,t,r,b,extra)=>({p,l:r1(l),t:r1(t),r:r1(r),b:r1(b),...(extra||{})});
+function sameLine(a,b){return Math.abs(a.y-b.y)<4.5}
+function mergeBlock(list,kind,W){ // un seul rectangle par page
+  const by=new Map();for(const it of list){const m=by.get(it.p);if(!m)by.set(it.p,{p:it.p,l:it.x,t:it.top,r:it.x+it.w,b:it.bot});else{m.l=Math.min(m.l,it.x);m.t=Math.min(m.t,it.top);m.r=Math.max(m.r,it.x+it.w);m.b=Math.max(m.b,it.bot)}}
+  return[...by.values()].map(m=>R(m.p,Math.min(m.l-3,W*.055),m.t-3,Math.max(m.r+3,W*.945),m.b+3,{kind}));
+}
+function mergeLines(list,kind){ // regroupe des éléments masqués par ligne
+  const out=[];const byKey=new Map();
+  for(const it of list){const k=it.p+":"+Math.round(it.y/4);let m=byKey.get(k);
+    if(!m){m={p:it.p,l:it.x,t:it.top,r:it.x+it.w,b:it.bot};byKey.set(k,m);out.push(m)}
+    else{m.l=Math.min(m.l,it.x);m.t=Math.min(m.t,it.top);m.r=Math.max(m.r,it.x+it.w);m.b=Math.max(m.b,it.bot)}}
+  return out.map(m=>R(m.p,m.l-3,m.t-2,m.r+3,m.b+2,{kind}));
+}
+
+async function parsePdf(bytes,o){
+  o=o||{};const pages=await readPages(bytes);
+  const raster=o.raster||(typeof document!=='undefined'?makeRaster(bytes):null);
+  const fmt=pages.some(pg=>pg.items.some(it=>/^\(Type:/.test(it.s)||/^Élément\s*d'épreuve/.test(it.s)||it.s==="Élément"))?1:2;
+  const stream=[];const pageInfo=pages.map(pg=>({w:r1(pg.w),h:r1(pg.h)}));
+  for(const pg of pages){
+    let items=pg.items.slice().sort((a,b)=>Math.abs(a.top-b.top)<2.5?a.x-b.x:a.top-b.top);
+    pg.ctop=0;pg.bottom=pg.h-8;
+    if(fmt===1){
+      const bad=new Set();
+      items.forEach(it=>{if(/^Référence\s*:/.test(it.s)){items.forEach(o=>{if(sameLine(o,it))bad.add(o)});pg.ctop=Math.max(pg.ctop,it.bot+3)}});
+      items.forEach((it,ix)=>{if(/^Élément\s*d'épreuve/.test(it.s)||it.s==="Élément"&&items.some(o=>o!==it&&sameLine(o,it)&&/^d'épreuve/.test(o.s))){items.forEach(o=>{if(o!==it&&sameLine(o,it))bad.add(o)});it.caseMark=1;pg.ctop=Math.max(pg.ctop,it.bot+3)}});
+      const foot=items.find(it=>/^Auteurs\s*:/.test(it.s));
+      if(foot)pg.bottom=foot.top-4;
+      items=items.filter(it=>!bad.has(it)&&!(foot&&it.top>=foot.top-1));
+    }else{
+      const num=items.find(it=>/^\d+\s*\/\s*\d+$/.test(it.s)&&it.top>pg.h*.94);
+      if(num)pg.bottom=num.top-4;
+      items=items.filter(it=>it!==num);
+    }
+    items.forEach(it=>stream.push(it));
+  }
+  const W=p=>pages[p-1].w;
+  const isQHead=(it,i)=>it.x<W(it.p)*.2&&(fmt===1?(/^Question\s*\d+\s*:?/.test(it.s)||it.s==="Question"&&stream[i+1]&&stream[i+1].p===it.p&&sameLine(stream[i+1],it)&&/^\d+\s*:?$/.test(stream[i+1].s)):/^Question\s*\d+$/.test(it.s));
+  const isCaseMark=it=>fmt===1?!!it.caseMark:it.x<W(it.p)*.3&&(/^DP\s*\d+\s*[-–]/i.test(it.s)||/^QI\s*\d+\s*[-–]/i.test(it.s)||/^Questions isolées/i.test(it.s));
+  const cases=[];let c=null,q=null;
+  const newCase=(mark)=>{c={pre:[],qs:[],qi:!!(mark&&/^QI|isolées/i.test(mark.s))};cases.push(c);q=null};
+  for(let i=0;i<stream.length;i++){
+    const it=stream[i];
+    if(isCaseMark(it)){newCase(it);if(fmt===2&&!/isolées/i.test(it.s))c.pre.push(it);continue}
+    if(isQHead(it,i)){
+      if(!c)newCase(null);
+      const n=+((it.s.match(/\d+/)||(stream[i+1].s.match(/\d+/)))||[0])[0];
+      let type;
+      if(fmt===1){const look=stream.slice(i,i+6).filter(x=>x.p===it.p&&sameLine(x,it)).map(x=>x.s).join(" ");type=normType((look.match(/Type:\s*([A-Z]+)/)||[])[1]||"QRM")}
+      else type=typeFromLabel(stream.filter(x=>x.p===it.p&&x.x>W(it.p)*.6&&x.top>it.top-6&&x.top<it.top+18).map(x=>x.s).join(" "));
+      const annul=stream.slice(Math.max(0,i-3),i+3).some(x=>x.p===it.p&&sameLine(x,it)&&/^Annul/i.test(x.s));
+      q={n,type:annul?"ANNULÉE":type,head:it,items:[]};c.qs.push(q);continue;
+    }
+    if(q)q.items.push(it);else{if(!c)newCase(null);c.pre.push(it)}
+  }
+  const bands=list=>{const by=new Map();for(const it of list){const b=by.get(it.p)||{p:it.p,y0:it.top,y1:it.bot};b.y0=Math.min(b.y0,it.top);b.y1=Math.max(b.y1,it.bot);by.set(it.p,b)}
+    return[...by.values()].map(b=>({p:b.p,y0:r1(Math.max(pages[b.p-1].ctop,b.y0-5)),y1:r1(Math.min(pages[b.p-1].bottom,b.y1+6))}))};
+  const outCases=[],dropped=[],warn=[];
+  for(const cs of cases){
+    const oc={enonce:cs.pre.length?bands(cs.pre):[],qs:[],qi:cs.qi||!cs.pre.length};
+    for(const Q of cs.qs){
+      const segs=bands([Q.head,...Q.items]);
+      const res=fmt===1?parseQ1(Q,pages,warn):await parseQ2(Q,pages,warn,raster);
+      if(!SUPPORTED.has(res.type)||(!res.opts.length&&!res.qroc)){dropped.push({type:res.type||Q.type,n:Q.n,segs});continue}
+      oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),_end:res.endAt});
+    }
+    if(oc.qs.length)outCases.push(oc);else if(oc.enonce.length)dropped.push({type:"dossier",segs:oc.enonce});
+  }
+  extendSegs(outCases,dropped,pages);
+  // une question s'arrête à la fin de ses propositions : ce qui suit (images de correction, encadrés) n'est jamais affiché
+  outCases.forEach(cs=>cs.qs.forEach(q=>{const e=q._end;delete q._end;if(!e)return;
+    const cut=[];for(const sg of q.segs){const W=pages[sg.p-1].w;if(sg.p>e.p)cut.push(R(sg.p,0,sg.y0,W,sg.y1,{kind:"after"}));else if(sg.p===e.p&&sg.y1>e.y+5)cut.push(R(sg.p,0,e.y+5,W,sg.y1,{kind:"after"}))}
+    q.segs=q.segs.filter(sg=>sg.p<=e.p);const last=q.segs.find(sg=>sg.p===e.p);if(last)last.y1=r1(Math.min(last.y1,e.y+5));
+    cut.forEach(m=>q.hide.push(m))}));
+  pages.forEach((pg,i)=>{const its=pg.items;if(!its.length)return;pageInfo[i].x0=r1(Math.max(0,Math.min(...its.map(x=>x.x))-10));pageInfo[i].x1=r1(Math.min(pg.w,Math.max(...its.map(x=>x.x+x.w))+10))});
+  return{v:PARSER_VERSION,fmt,pages:pageInfo,cases:outCases,nq:outCases.reduce((s,cs)=>s+cs.qs.length,0),dropped:dropped.map(d=>({type:d.type,n:d.n,segs:d.segs})),warn};
+}
+
+function extendSegs(cases,dropped,pages){
+  // toutes les bandes, dans l'ordre, par page : chaque bande s'étend vers le bas jusqu'à la bande suivante de la même page (ou le bas du contenu)
+  const all=[];
+  cases.forEach(cs=>{cs.enonce.forEach(s=>all.push(s));cs.qs.forEach(q=>q.segs.forEach(s=>all.push(s)))});
+  dropped.forEach(d=>d.segs.forEach(s=>all.push(s)));
+  const byP=new Map();all.forEach(s=>{if(!byP.has(s.p))byP.set(s.p,[]);byP.get(s.p).push(s)});
+  for(const [p,list] of byP){list.sort((a,b)=>a.y0-b.y0);const pg=pages[p-1];
+    if(list.length&&list[0].y0>pg.ctop)list[0].y0=r1(pg.ctop);
+    for(let i=0;i<list.length;i++){const nx=list[i+1];const lim=nx?nx.y0:pg.bottom;if(lim>list[i].y1)list[i].y1=r1(lim)}}
+}
+
+function parseQ1(Q,pages,warn){
+  const W=pages[Q.head.p-1].w;
+  const items=Q.items;const hide=[],opts=[];let qroc=null;
+  const st=items.filter(it=>it.h>=10).slice(0,40).map(x=>x.s).join(" ").slice(0,200);
+  const k=(st.match(/(\d+)\s*r[ée]ponses?\s*attendues/i)||[])[1];
+  const type=Q.type;
+  // repères
+  const glyphIdx=items.map((it,i)=>isGlyph(it.s)&&it.x<W*.2?i:-1).filter(i=>i>=0);
+  const qrocIdx=items.findIndex(it=>/^Réponses valides/.test(it.s)||(it.s==="Réponses"&&items[items.indexOf(it)+1]&&/^valides/.test(items[items.indexOf(it)+1].s)));
+  const comIdx=items.findIndex(it=>/^Commentaire/.test(it.s)&&it.x<W*.2);
+  // commentaire pédagogique : du mot « Commentaire » jusqu'à la 1re case ou au bloc de réponses
+  if(comIdx>=0){
+    const end=Math.min(...[glyphIdx.find(i=>i>comIdx),qrocIdx>comIdx?qrocIdx:undefined,items.length].filter(x=>x!=null));
+    mergeBlock(items.slice(comIdx,end),"comment",W).forEach(m=>hide.push(m));
+  }
+  if(qrocIdx>=0){
+    const block=items.slice(qrocIdx);
+    const ansStart=block[0].s==="Réponses"?2:1;
+    const ans=[];for(let j=ansStart;j<block.length;j++){if(/^Propositions/.test(block[j].s))break;ans.push(block[j].s)}
+    qroc={ans:ans.join(" ").split(/;/).map(s=>s.trim()).filter(s=>/[\p{L}\p{N}]/u.test(s))};
+    const qb=mergeBlock(block,"qroc",W);qb.forEach(m=>hide.push(m));const lb=qb[qb.length-1];
+    return{type:"QROC",k:null,st,opts:[],hide,qroc,endAt:lb?{p:lb.p,y:lb.b}:null};
+  }
+  // propositions
+  for(let gi=0;gi<glyphIdx.length;gi++){
+    const g=items[glyphIdx[gi]],nextG=gi+1<glyphIdx.length?glyphIdx[gi+1]:items.length;
+    const rowItems=items.slice(glyphIdx[gi]+1,nextG);
+    const line=rowItems.filter(x=>x.p===g.p&&sameLine(x,g)).sort((a,b)=>a.x-b.x);
+    const col=[g];let letter=null,label=[],textX=null,ex=null;
+    const exp=String.fromCharCode(65+opts.length);
+    for(const x of line){
+      if(textX!=null)break;
+      if(!letter&&(x.s===exp+"."||x.s===exp&&!label.length&&x.x<g.x+W*.3)){letter=exp;col.push(x);continue}
+      const mm=x.s.match(/^(.*\S)\s+([A-Z])\.$/);
+      if(!letter&&mm&&mm[2]===exp&&(LABEL_RE.test(mm[1])||COUNT_RE.test(mm[1]))){letter=mm[2];label.push(mm[1]);col.push(x);continue}
+      if(LABEL_RE.test(x.s)||COUNT_RE.test(x.s)||x.h<10.5&&!letter){label.push(x.s);col.push(x);continue}
+      textX=x.x;
+    }
+    // lettre renvoyée à la ligne (« Valide » puis « B. » dessous)
+    const rest=rowItems.filter(x=>!col.includes(x)&&!line.includes(x));
+    if(!letter){const lw=rest.find(x=>(x.s===exp+"."||x.s===exp)&&x.x<(textX||W*.4)&&x.p===g.p&&x.y>g.y&&x.y-g.y<16);if(lw){letter=exp;col.push(lw)}}
+    if(textX==null){const t=rowItems.find(x=>!col.includes(x)&&x.h>=10.5);textX=t?t.x:W*.3}
+    const labTxt=label.join(" ");
+    const v=CHECKED(g.s)||/^(Valide|Indispensable|Acceptable)/i.test(labTxt)?1:0;
+    const exM=labTxt.match(/(\d+)\s*Experts?/i);
+    const cMin=Math.min(...col.map(x=>x.top)),cMax=Math.max(...col.filter(x=>sameLine(x,g)).map(x=>x.bot));
+    const o=R(g.p,g.x-3,cMin-2,Math.max(...col.map(x=>x.x+x.w))+3,cMax+2,{L:letter||String.fromCharCode(65+opts.length),v});
+    if(/Indispensable/i.test(labTxt))o.ind=1;if(/Inacceptable/i.test(labTxt))o.inac=1;
+    if(exM)o.ex=+exM[1];else if(type==="TCS")o.ex=0;
+    if(o.r>textX-1)o.r=r1(Math.max(o.l+10,textX-1));
+    opts.push(o);
+    // lettre ou mention sur une autre ligne : masques non révélés
+    col.filter(x=>!sameLine(x,g)||x.p!==g.p).forEach(x=>hide.push(R(x.p,x.x-3,x.top-2,x.x+x.w+3,x.bot+2,{kind:"label"})));
+    // justifications : tout ce qui n'est pas la suite du texte de la proposition
+    const colR=Math.max(...col.map(x=>x.x+x.w));
+    const just=rest.filter(x=>!col.includes(x)&&x.h<10.5);
+    const lab=rest.filter(x=>!col.includes(x)&&x.h>=10.5&&x.x+x.w<=colR+2&&x.x<textX-4);
+    mergeLines(just,"just").forEach(m=>hide.push(m));
+    lab.forEach(x=>hide.push(R(x.p,x.x-3,x.top-2,x.x+x.w+3,x.bot+2,{kind:"label"})));
+  }
+  if(opts.length){const lo=opts[opts.length-1];const lg=glyphIdx[glyphIdx.length-1];const tail=items.slice(lg).filter(x=>x.p===lo.p&&x.h>=10.5);var endAt={p:lo.p,y:Math.max(lo.b,...tail.map(x=>x.bot))}}
+  // éléments en petit corps avant les propositions (hors commentaire) : prudence, on masque
+  const firstG=glyphIdx.length?glyphIdx[0]:items.length;
+  const small=items.slice(0,firstG).filter((x,i)=>x.h<10&&!(comIdx>=0&&i>=comIdx));
+  if(small.length){mergeLines(small,"just").forEach(m=>hide.push(m));warn.push("petit texte avant propositions Q"+Q.n)}
+  return{type,k:k?+k:null,st,opts,hide,qroc,endAt:typeof endAt!=="undefined"?endAt:null};
+}
+
+async function parseQ2(Q,pages,warn,raster){
+  const W=pages[Q.head.p-1].w;
+  const items=Q.items.filter(x=>!(x.x>W*.6&&x.p===Q.head.p&&x.top>Q.head.top-6&&x.top<Q.head.top+18));
+  const st=items.filter(it=>it.h>=10&&it.x<W*.6).slice(0,40).map(x=>x.s).join(" ").slice(0,200);
+  const k=(st.match(/(\d+)\s*r[ée]ponses?\s*attendues/i)||[])[1];
+  const hide=[],opts=[];let qroc=null,type=Q.type;
+  // commentaire de correction : jusqu'à la fin de la question
+  // commentaires de correction (de la question, ou d'une proposition) : du titre jusqu'à la ligne de proposition suivante
+  const isLet=x=>x.x<W*.12&&/^[A-Z]$/.test(x.s);
+  const inCom=new Set();
+  for(let i=0;i<items.length;i++){if(!(/^Commentaire/i.test(items[i].s)&&items[i].x<W*.3))continue;
+    let j=i;const blk=[];while(j<items.length&&(j===i||!(isLet(items[j])||/^Commentaire/i.test(items[j].s)&&items[j].x<W*.3))){blk.push(items[j]);inCom.add(items[j]);j++}
+    mergeBlock(blk,"comment",W).forEach(m=>hide.push(m));i=j-1}
+  const body=items.filter(x=>!inCom.has(x));
+  const qh=body.findIndex(x=>/^Réponses? attendues?$/.test(x.s));
+  const glyphRows=body.filter(x=>isGlyph(x.s)&&x.x<W*.3);
+  if(type==="?"||type==="QRM"&&qh>=0&&!glyphRows.length&&!body.some(x=>LETTER_RE.test(x.s)&&x.x<W*.12)){
+    if(qh>=0&&!body.some(x=>x.s==="A"&&x.x<W*.12))type="QROC";else if(type==="?")type="QRM";
+  }
+  if(type==="QROC"){
+    if(qh<0)return{type,opts,hide,qroc:null};
+    const block=body.slice(qh+1).filter(x=>x.x<W*.6);
+    qroc={ans:block.flatMap(x=>x.s.split(/[;\/]/)).map(s=>s.trim()).filter(s=>/[\p{L}\p{N}]/u.test(s))};
+    const qb=mergeBlock(block,"qroc",W);qb.forEach(m=>hide.push(m));const lb=qb[qb.length-1];
+    return{type,k:null,st,opts,hide,qroc,endAt:lb?{p:lb.p,y:lb.b}:null};
+  }
+  if(type==="TCS"){
+    const hdr=body.find(x=>/^Réponses des experts/.test(x.s));
+    const labels=body.filter(x=>x.x<W*.3&&/^(Totalement négatif|Négatif|Ni plus ni moins|Positif|Très|Totalement positif|Très négatif|Très positif)$/.test(x.s));
+    if(!hdr||labels.length<3)return{type:"?",opts,hide,qroc};
+    const counts=body.filter(x=>x.x>=hdr.x-8&&x.top>hdr.bot&&/^\d+\s*\/?\s*\d*$/.test(x.s)&&x.h<10);
+    const rows=labels.map((lb,i)=>({lb,i,n:0}));
+    for(const cnt of counts.filter(x=>/\//.test(x.s))){let best=null,bd=1e9;for(const r of rows){const d=Math.abs(r.lb.y-cnt.y)+(cnt.y>r.lb.y+4?50:0);if(d<bd){bd=d;best=r}}if(best)best.n=+cnt.s.match(/\d+/)[0]}
+    const lastBot=Math.max(...[...labels,...counts].map(x=>x.bot));
+    hide.push(R(hdr.p,hdr.x-8,hdr.bot+2,W*.955,lastBot+8,{kind:"just"}));
+    rows.forEach((r,i)=>{const nx=rows[i+1];const allL=body.filter(x=>x.x<W*.3&&x.p===r.lb.p&&x.top>=r.lb.top-1&&(!nx||x.top<nx.lb.top-1));const bot=Math.max(r.lb.bot,...allL.map(x=>x.bot));
+      opts.push(R(r.lb.p,W*.044,r.lb.top-3,r.lb.x-1.5,(nx?Math.min(nx.lb.top-2,bot+6):bot+4),{L:String.fromCharCode(65+i),v:r.n>0?1:0,ex:r.n,nl:1}))});
+    const hh=hide[hide.length-1];return{type,k:null,st,opts,hide,qroc,endAt:{p:hh.p,y:Math.max(hh.b,opts[opts.length-1].b)}};
+  }
+  // lignes de propositions : lettre en début de ligne ; case en texte (■ ☑) ou dessinée en couleur (anciens corrigés)
+  const letters=[];for(const x of body){const exp=String.fromCharCode(65+letters.length);if(x.x<W*.12&&x.s===exp&&(!letters.length||x.top>letters[letters.length-1].top-2||x.p!==letters[letters.length-1].p))letters.push(x)}
+  if(!letters.length)return{type,opts,hide,qroc};
+  const col={l:Infinity,r:-Infinity};
+  for(let li=0;li<letters.length;li++){
+    const L=letters[li],nx=letters[li+1];
+    const band=body.filter(x=>x.p===L.p&&x.top>=L.top-6&&(!nx||nx.p!==L.p||x.top<nx.top-3));
+    const line=band.filter(x=>sameLine(x,L)&&x.x>L.x+L.w+4).sort((a,b)=>a.x-b.x);
+    const t0=line.find(x=>!isGlyph(x.s)&&!/^(INDISPENSABLE|INACCEPTABLE|Indispensable|Inacceptable)$/.test(x.s)&&x.x>L.x+25);
+    const tx=t0?t0.x:W*.18;
+    const cell=band.filter(x=>x.x>L.x+L.w+2&&x.x+x.w<=tx-1);
+    const g=cell.find(x=>isGlyph(x.s));
+    const lab=cell.map(x=>x.s).join(" ");
+    const bot=Math.max(L.bot,...cell.map(x=>x.bot));
+    const o=R(L.p,L.x+L.w+6,L.top-4,tx-5,bot+4,{L:L.s,nl:1});
+    if(/INDISPENSABLE/i.test(lab))o.ind=1;if(/INACCEPTABLE/i.test(lab))o.inac=1;
+    if(g)o.v=CHECKED(g.s)?1:0;
+    else{
+      if(!raster){warn.push("cases dessinées : lecture d'image nécessaire Q"+Q.n);return{type:"?",opts:[],hide,qroc}}
+      const ras=await raster(L.p);const sc=ras.scale,d=ras.data,wid=ras.width;let gr=0,rd=0;
+      for(let y=Math.floor(o.t*sc);y<Math.ceil(o.b*sc);y++)for(let x=Math.floor(o.l*sc);x<Math.ceil(o.r*sc);x++){const i=(y*wid+x)*4,r=d[i],gg=d[i+1],bb=d[i+2];
+        if(gg>100&&gg-r>35&&gg-bb>15)gr++;else if(r>140&&r-gg>60&&r-bb>45)rd++}
+      if(gr<4&&rd<4){warn.push("case illisible Q"+Q.n+" "+L.s);return{type:"?",opts:[],hide,qroc}}
+      o.v=gr>rd?1:0;
+    }
+    opts.push(o);col.l=Math.min(col.l,o.l);col.r=Math.max(col.r,o.r);
+  }
+  const lo=opts[opts.length-1],LL=letters[letters.length-1];const tail=body.filter(x=>x.p===LL.p&&x.top>=LL.top-2);
+  return{type,k:k?+k:null,st,opts,hide,qroc,col,endAt:{p:lo.p,y:Math.max(lo.b,...tail.map(x=>x.bot))}};
+}
