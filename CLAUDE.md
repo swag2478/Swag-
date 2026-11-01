@@ -75,11 +75,11 @@ Il faut maintenant en faire un site autonome. **Langue de l'interface et des éc
 
 ## État (novembre 2026)
 Étapes 1 à 6 faites. Lecteur v4 : images de correction masquées (vérifié sur 263 vraies annales, contrôle indépendant). Masquage comparé écran par écran sur 13 vrais corrigés. Mise en page vérifiée sur ordinateur (1920, 1440, 1280 px), iPad et téléphone.
-(`src/config.js` est vide tant qu'il n'a pas créé le projet). Les tests tournent sur des corrigés fictifs
-(`tests/make-fixtures.py`) : refaire `npm test` avec de vrais corrigés déposés dans `tests/fixtures/`.
+Site en ligne sur GitHub Pages ; `src/config.js` contient l'URL et la clé publique (anon) du projet Supabase.
+`npm test` tourne sur des corrigés fictifs (`tests/make-fixtures.py`) ; de vrais corrigés peuvent être déposés dans `tests/fixtures/` (ignoré par git).
 
 ## Repères dans le code
-- `src/parse3.js` (PARSER_VERSION=3) : lecteur des 3 formats de corrigés (Valide/Faux, « Réponse attendue »,
+- `src/parse3.js` (PARSER_VERSION=4 : masque aussi les images situées dans la correction) : lecteur des 3 formats de corrigés (Valide/Faux, « Réponse attendue »,
   cases colorées), QROC, TCS, questions annulées, commentaires/justifications.
 - `src/check-core.js` : contrôle indépendant (texte révélateur couvert, couleur dans la colonne des réponses,
   `autodrop` des questions défectueuses, vérification du sujet vierge).
