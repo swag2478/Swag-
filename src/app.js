@@ -277,7 +277,9 @@ async function cropEl(A,seg,overlays){
   for(const o of overlays){if(o.p!==seg.p)continue;const t=Math.max(o.t,seg.y0),b=Math.min(o.b,seg.y1);if(b-t<1)continue;
     const l=Math.max(o.l,x0),r=Math.min(o.r,x1);if(r-l<1)continue;
     const el=o.el;
-    el.style.left=(l-x0)/cw*100+"%";el.style.top=(t-seg.y0)/ch*100+"%";el.style.width=(r-l)/cw*100+"%";el.style.height=(b-t)/ch*100+"%";wrap.appendChild(el)}
+    // un cache qui touche un bord du cadre déborde de 2 px : aucune colonne de pixels de la page ne reste visible sur ce bord
+    const eL=l<=x0+.01?2:0,eR=r>=x1-.01?2:0,eT=t<=seg.y0+.01?2:0,eB=b>=seg.y1-.01?2:0;
+    el.style.left=`calc(${(l-x0)/cw*100}% - ${eL}px)`;el.style.top=`calc(${(t-seg.y0)/ch*100}% - ${eT}px)`;el.style.width=`calc(${(r-l)/cw*100}% + ${eL+eR}px)`;el.style.height=`calc(${(b-t)/ch*100}% + ${eT+eB}px)`;wrap.appendChild(el)}
   try{const {cv:src,s}=await pageCanvas(A,seg.p);
     const cv=document.createElement("canvas");cv.width=Math.round(cw*s);cv.height=Math.max(1,Math.round(ch*s));
     cv.getContext("2d").drawImage(src,x0*s,seg.y0*s,cw*s,ch*s,0,0,cv.width,cv.height);wrap.prepend(cv);wrap.classList.remove("loading");
