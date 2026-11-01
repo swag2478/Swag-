@@ -54,7 +54,11 @@ let refHtml=null;
 function refPage(){if(refHtml)return refHtml;// lecteur et contrôle : ceux du dépôt actuel (les deux versions doivent masquer pareil) ; interface : celle de la version artefact
   const g=f=>/^(parse3|check-core)\.js$/.test(f)?fs.readFileSync(path.join(ROOT,'src',f),'utf8'):execSync(`git show ${REF_REV}:src/${f}`,{cwd:ROOT,encoding:'utf8',maxBuffer:1<<26});
   const SKEL=b=>`<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body>${b}</body></html>`;
-  refHtml=SKEL(g('style.html')+g('shell.html')+"<script>const CATALOG=[];</script>\n<script>\n"+g('parse3.js')+"\n</script>\n<script>\n"+g('check-core.js')+"\n</script>\n<script>\n"+g('app.js')+"\n</script>\n");return refHtml}
+  // les caches qui touchent un bord du cadre débordent de 2 px dans le site : même règle appliquée à la référence
+  const OLD='    el.style.left=(l-x0)/cw*100+"%";el.style.top=(t-seg.y0)/ch*100+"%";el.style.width=(r-l)/cw*100+"%";el.style.height=(b-t)/ch*100+"%";wrap.appendChild(el)}';
+  const cur=fs.readFileSync(path.join(ROOT,'src','app.js'),'utf8');const i=cur.indexOf('    // un cache qui touche un bord du cadre'),j=cur.indexOf('wrap.appendChild(el)}',i)+'wrap.appendChild(el)}'.length;
+  let refApp=g('app.js');if(i>0&&refApp.includes(OLD))refApp=refApp.replace(OLD,cur.slice(i,j));
+  refHtml=SKEL(g('style.html')+g('shell.html')+"<script>const CATALOG=[];</script>\n<script>\n"+g('parse3.js')+"\n</script>\n<script>\n"+g('check-core.js')+"\n</script>\n<script>\n"+refApp+"\n</script>\n");return refHtml}
 
 /* ---------- ouverture d'une page ---------- */
 // locale UTF-8 : sans elle, Chromium sous Linux remplace par « download » les noms de fichiers accentués

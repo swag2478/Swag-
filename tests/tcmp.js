@@ -49,7 +49,8 @@ const RUN=async(page,file,fn)=>page.evaluate(async([b,fn])=>{try{const by=Uint8A
 const cy=(t.top+t.bot)/2;if(cy<seg.y0||cy>seg.y1||t.x+t.w<x0||t.x>x1)continue;
         const ya=Math.max(t.top+1,seg.y0),yb=Math.min(t.bot-1,seg.y1),xa=Math.max(t.x,x0),xb=Math.min(t.x+Math.max(t.w,1),x1);if(yb-ya<1.5)continue;
         for(let i=0;i<=8;i++)for(let j=0;j<=4;j++){const px=xa+(xb-xa)*i/8,py=ya+(yb-ya)*j/4;
-          let sx=R.left+(px-x0)/cw*R.width,sy=R.top+(py-seg.y0)/ch*R.height;sx=Math.min(Math.max(sx,R.left+.6),R.right-.6);sy=Math.min(Math.max(sy,R.top+.6),R.bottom-.6);if(i===0)sx+=.6;if(i===8)sx-=.6;
+          let sx=R.left+(px-x0)/cw*R.width,sy=R.top+(py-seg.y0)/ch*R.height;// cadre : 1 px de bordure, où rien de la page n'est dessiné
+          sx=Math.min(Math.max(sx,R.left+1.8),R.right-1.8);sy=Math.min(Math.max(sy,R.top+1.8),R.bottom-1.8);
           const el=document.elementFromPoint(sx,sy);pts++;if(!el||!el.closest('.opt,.mask')){out.push(`p${t.p} « ${t.s.slice(0,40)} » (${t.why}) visible en (${Math.round(px)},${Math.round(py)})`);break}}}})};
     // les caches .mask ont pointer-events:none (ils laissent passer les clics) : on les rend « touchables » le temps du contrôle
     const stl=document.createElement('style');stl.textContent='.mask{pointer-events:auto!important}';document.head.appendChild(stl);
