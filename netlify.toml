@@ -1,0 +1,4 @@
+# Netlify : construit dist/ avec Python (aucune dépendance). Les en-têtes HTTP sont dans dist/_headers.
+[build]
+  command = "python3 build.py"
+  publish = "dist"

@@ -30,6 +30,7 @@ function makeSupabase(members){
     const body=req.postData()?JSON.parse(req.postData()):null;
     const bearer=(req.headers()['authorization']||'').replace(/^Bearer\s+/,'');const me=st.tokens.get(bearer)||null;
     st.log.push(m+' '+u.pathname);
+    if(u.pathname==='/auth/v1/otp'&&st.rateLimit)return json(route,429,{code:429,error_code:'over_email_send_rate_limit',msg:'For security purposes, you can only request this after 42 seconds.'});
     if(u.pathname==='/auth/v1/otp'){const email=body.email;const code=String(100000+Math.floor(Math.random()*899999));st.codes.set(email,code);st.sent.push({email,code,redirect:u.searchParams.get('redirect_to')});return json(route,200,{})}
     if(u.pathname==='/auth/v1/verify'){if(st.codes.get(body.email)!==body.token)return json(route,403,{code:403,error_code:'otp_expired',msg:'Token has expired or is invalid'});st.codes.delete(body.email);return json(route,200,st.session(body.email))}
     if(u.pathname==='/auth/v1/user'){if(!me)return json(route,401,{code:401,msg:'invalid JWT'});return json(route,200,user(me))}
@@ -69,6 +70,7 @@ async function open(opts={}){
     if(u.startsWith(SB))return sb.handle(r);
     for(const [k,f] of Object.entries(LIBS))if(u.includes(k)){if(state.cdnDown)return r.abort('internetdisconnected');return r.fulfill({body:fs.readFileSync(f),contentType:'text/javascript',headers:{'access-control-allow-origin':'*'}})}
     if(u.includes('fonts.g'))return r.abort();
+    if(/^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(u))return r.continue();
     if(u.startsWith('http://ref.test/'))return r.fulfill({body:refPage(),contentType:'text/html'});
     if(u.startsWith('http://swag.test/')){let p=decodeURIComponent(new URL(u).pathname).replace(/^\//,'')||'index.html';
       if(p==='config.js'&&!opts.realConfig)return r.fulfill({body:opts.config||TEST_CONFIG,contentType:'text/javascript'});
@@ -87,7 +89,7 @@ async function login(o,email){const {page,sb}=o;
 async function openApp(opts={}){const o=await open(opts);await o.page.goto('http://swag.test/');if(opts.login!==false)await login(o,opts.email||'membre@exemple.fr');return o}
 // import en masse par l'interface ; renvoie le texte du récapitulatif
 async function importFiles(page,files){
-  await page.click('[data-add]');await page.waitForSelector('#imFile',{state:'attached'});
+  await page.click('[data-tab=annales]');await page.click('[data-add]');await page.waitForSelector('#imFile',{state:'attached'});
   await page.setInputFiles('#imFile',files);
   await page.waitForFunction(()=>/Terminé|Arrêté/.test(document.querySelector('#imNow')?.textContent||''),null,{timeout:300000});
   return page.evaluate(()=>[...document.querySelectorAll('.imrow')].map(r=>r.className.split(' ')[1]+' | '+r.querySelector('.imn b').textContent+' | '+(r.querySelector('.imw')?.textContent||r.querySelector('small')?.textContent||'')));

@@ -161,6 +161,7 @@ function nav(){
 function go(tab){V.tab=tab;render();scrollTo(0,0)}
 const isAdmin=()=>typeof AUTH!=="undefined"&&AUTH.role==="admin"&&typeof vMembres==="function";
 function render(){
+  if(document.body.classList.contains("locked"))return; // écran de connexion affiché (auth.js)
   nav();const v=$("#view");stopChrono();
   document.querySelector(".act")?.remove();
   if(V.tab==="play"&&play)return showQ();

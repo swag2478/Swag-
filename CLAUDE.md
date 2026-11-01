@@ -72,6 +72,13 @@ Il faut maintenant en faire un site autonome. **Langue de l'interface et des éc
    Les PDF de test ne sont pas dans le dépôt : les mettre dans `tests/fixtures/` (ignoré par git).
    Le propriétaire ne tolère **aucune erreur de masquage** : revérifier systématiquement.
 
+## État (novembre 2026)
+Étapes 1 à 4 et 6 faites et vérifiées (`npm test`, voir README) ; étape 5 préparée (`DEPLOIEMENT.md`, `netlify.toml`,
+`src/_headers`) mais **la mise en ligne attend le choix d'hébergement du propriétaire** et la configuration Supabase
+(`src/config.js` est vide tant qu'il n'a pas créé le projet). Les tests tournent sur des corrigés fictifs
+(`tests/make-fixtures.py`) : refaire `npm test` avec de vrais corrigés déposés dans `tests/fixtures/`.
+Anonymat : les deux premiers commits de l'historique portent le pseudo GitHub du propriétaire (voir DEPLOIEMENT.md § 3).
+
 ## Repères dans le code
 - `src/parse3.js` (PARSER_VERSION=3) : lecteur des 3 formats de corrigés (Valide/Faux, « Réponse attendue »,
   cases colorées), QROC, TCS, questions annulées, commentaires/justifications.
@@ -79,4 +86,6 @@ Il faut maintenant en faire un site autonome. **Langue de l'interface et des éc
   `autodrop` des questions défectueuses, vérification du sujet vierge).
 - `src/app.js` : interface (onglets Accueil, Annales, Séries, Série en cours, Carnet d'erreurs,
   Statistiques, Réglages), thème clair/sombre, détails rouges.
-- `tests/harness.js` : serveur Playwright simulé (sert la page, pdf.js et pdf-lib depuis `node_modules`).
+- `src/auth.js` : connexion Supabase (code / lien), table `members`, accès hors ligne, onglet Membres.
+- `tests/harness.js` : banc Playwright (sert `dist/`, les bibliothèques CDN depuis `node_modules`, Supabase simulé avec RLS,
+  version de référence artefact sur `ref.test`). `npm test` lance tout (`tests/run-all.js`).
