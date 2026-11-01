@@ -74,7 +74,7 @@ Il faut maintenant en faire un site autonome. **Langue de l'interface et des éc
    Le propriétaire ne tolère **aucune erreur de masquage** : revérifier systématiquement.
 
 ## État (novembre 2026)
-Étapes 1 à 4 et 6 faites et vérifiées (`npm test`, voir README) ; étape 5 : GitHub Pages (workflow prêt) ; la mise en ligne attend l'activation de Pages et la configuration Supabase
+Étapes 1 à 6 faites. Lecteur v4 : images de correction masquées (vérifié sur 263 vraies annales, contrôle indépendant). Masquage comparé écran par écran sur 13 vrais corrigés. Mise en page vérifiée sur ordinateur (1920, 1440, 1280 px), iPad et téléphone.
 (`src/config.js` est vide tant qu'il n'a pas créé le projet). Les tests tournent sur des corrigés fictifs
 (`tests/make-fixtures.py`) : refaire `npm test` avec de vrais corrigés déposés dans `tests/fixtures/`.
 
