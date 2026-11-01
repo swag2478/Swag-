@@ -51,7 +51,8 @@ function makeSupabase(members){
 /* ---------- version de référence (artefact) ---------- */
 const REF_REV='ade14bc';
 let refHtml=null;
-function refPage(){if(refHtml)return refHtml;const g=f=>execSync(`git show ${REF_REV}:src/${f}`,{cwd:ROOT,encoding:'utf8',maxBuffer:1<<26});
+function refPage(){if(refHtml)return refHtml;// lecteur et contrôle : ceux du dépôt actuel (les deux versions doivent masquer pareil) ; interface : celle de la version artefact
+  const g=f=>/^(parse3|check-core)\.js$/.test(f)?fs.readFileSync(path.join(ROOT,'src',f),'utf8'):execSync(`git show ${REF_REV}:src/${f}`,{cwd:ROOT,encoding:'utf8',maxBuffer:1<<26});
   const SKEL=b=>`<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style></head><body>${b}</body></html>`;
   refHtml=SKEL(g('style.html')+g('shell.html')+"<script>const CATALOG=[];</script>\n<script>\n"+g('parse3.js')+"\n</script>\n<script>\n"+g('check-core.js')+"\n</script>\n<script>\n"+g('app.js')+"\n</script>\n");return refHtml}
 
