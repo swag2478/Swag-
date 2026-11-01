@@ -6,7 +6,8 @@ if(!fs.existsSync(FIX)||!fs.readdirSync(FIX).some(f=>f.startsWith('fx-')))execSy
 execSync('python3 build.py',{cwd:ROOT,stdio:'inherit'});
 console.log('\n# Contrôles statiques');
 const same=f=>{try{execSync(`git diff --quiet ade14bc -- src/${f}`,{cwd:ROOT});return true}catch(e){return false}};
-ok(same('parse3.js')&&same('check-core.js'),'lecteur et contrôle (parse3.js, check-core.js) identiques octet pour octet à la version artefact');
+ok(same('check-core.js'),'contrôle (check-core.js) identique octet pour octet à la version artefact');
+const p3=fs.readFileSync(path.join(ROOT,'src/parse3.js'),'utf8');ok(/PARSER_VERSION=4;/.test(p3)&&/function coverImages/.test(p3),'lecteur v4 : masquage des images de la correction présent');
 const html=fs.readFileSync(path.join(ROOT,'dist/index.html'),'utf8');
 ok(!/window\.claude|claude\.use|S\.sample|_blob|CATALOG|ensureData/.test(html),'plus aucune dépendance à la version artefact (window.claude, catalogue, _blob)');
 ok(!/Claude|explication|Expliquer/i.test(html.replace(/<style[\s\S]*?<\/style>/,'')),'aucune explication par IA dans l\'interface');

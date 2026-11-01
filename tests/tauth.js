@@ -7,7 +7,7 @@ const txt=p=>p.evaluate(()=>document.querySelector('#view').innerText);
   o=await H.open({browser,config:'window.SWAG_CONFIG={supabaseUrl:"",supabaseAnonKey:""};'});await o.page.goto('http://swag.test/');await o.page.waitForSelector('.auth h2');
   H.check(/pas encore configuré/.test(await txt(o.page)),'config.js vide : écran « pas encore configuré »');await o.close();
 
-  // membre : code à 6 chiffres
+  // membre : code reçu par e-mail (8 chiffres)
   o=await H.open({browser});let {page,sb}=o;await page.goto('http://swag.test/');await page.waitForSelector('#aEmail');
   H.check(await page.evaluate(()=>document.querySelector('#nav').children.length===0),'écran de connexion avant l\'app (aucun onglet)');
   H.check(/contrôle d'accès se fait dans ton navigateur/.test(await txt(page)),'écran de connexion honnête sur le contrôle côté navigateur');
@@ -69,12 +69,19 @@ const txt=p=>p.evaluate(()=>document.querySelector('#view').innerText);
   await page.fill('#mAdd','Nouvelle@Exemple.fr, faux@\nautre@exemple.fr');await page.click('#mGo');H.check(/non valide : faux@/.test(await page.textContent('#mRes')),'adresse invalide signalée, rien ajouté');
   await page.fill('#mAdd','Nouvelle@Exemple.fr\nautre@exemple.fr; membre@exemple.fr');await page.fill('#mNote','promo 2027');await page.click('#mGo');await page.waitForFunction(()=>/4 adresses/.test(document.querySelector('#view').innerText));
   H.check(sb.members.has('nouvelle@exemple.fr')&&sb.members.get('autre@exemple.fr').note==='promo 2027','ajout de 2 membres (minuscules, note), doublon ignoré');
+  H.check(['nouvelle@exemple.fr','autre@exemple.fr'].every(e=>sb.sent.some(x=>x.email===e)),'invitation envoyée automatiquement aux nouveaux membres');
+  const n0=sb.sent.length;await page.click('[data-inv="membre@exemple.fr"]');await page.waitForFunction(n=>true,n0);await page.waitForTimeout(500);
+  H.check(sb.sent.length===n0+1&&sb.sent.at(-1).email==='membre@exemple.fr','bouton « Renvoyer l\'invitation »');
   await page.click('[data-role="autre@exemple.fr"]');await page.waitForFunction(()=>document.querySelector('[data-role="autre@exemple.fr"]').textContent.includes('Retirer'));
   H.check(sb.members.get('autre@exemple.fr').role==='admin','rendre admin');
   await page.click('[data-del="nouvelle@exemple.fr"]');await page.click('[data-del="nouvelle@exemple.fr"]');await page.waitForFunction(()=>!document.querySelector('[data-del="nouvelle@exemple.fr"]'));
   H.check(!sb.members.has('nouvelle@exemple.fr'),'retrait d\'un membre (avec confirmation)');
   H.check(!(await page.$('[data-del="admin@exemple.fr"]')),'l\'admin ne peut pas se retirer lui-même');
   H.check(o.errors.length===0,'aucune erreur JavaScript '+JSON.stringify(o.errors));await o.close();
+  // la personne invitée se connecte avec le code de l'invitation (« J'ai déjà reçu un code »), sans en redemander
+  {const code=sb.sent.filter(x=>x.email==='autre@exemple.fr').at(-1).code;const o2=await H.open({browser,sb});const p=o2.page;await p.goto('http://swag.test/');await p.waitForSelector('#aEmail');
+   const n1=sb.sent.length;await p.fill('#aEmail','autre@exemple.fr');await p.click('#aHave');await p.waitForSelector('#aCode');H.check(sb.sent.length===n1,'« J\'ai déjà reçu un code » : aucun nouvel e-mail envoyé');
+   await p.fill('#aCode',code);await p.click('#aOk');await p.waitForSelector('#nav button');H.check(true,'connexion avec le code de l\'invitation (8 chiffres)');await o2.close()}
   // un membre simple ne peut pas modifier la table (règles RLS simulées)
   o=await H.openApp({browser});const r=await o.page.evaluate(async()=>{const {error}=await sb.from('members').insert({email:'pirate@exemple.fr'});const l=await sb.from('members').select('*');return[!!error,l.data.length]});
   H.check(r[0]&&r[1]===1,'membre simple : ajout refusé, ne voit que sa propre ligne');await o.close();

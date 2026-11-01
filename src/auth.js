@@ -1,5 +1,5 @@
 /* ================= Swag : accès réservé aux membres (Supabase) =================
-   Connexion par code à 6 chiffres reçu par e-mail (ou par le lien du même e-mail), puis vérification
+   Connexion par code reçu par e-mail (6 à 10 chiffres selon le réglage Supabase) (ou par le lien du même e-mail), puis vérification
    de l'adhésion dans la table « members ». Le code du site est public : ce contrôle se fait dans le
    navigateur et sert à réserver le site aux membres, pas à protéger des données secrètes.
    Les PDF, réponses et statistiques ne passent jamais par Supabase : seule l'adresse e-mail y va. */
@@ -80,11 +80,16 @@ function screenLogin(o){
     ${o.msg?`<p class="msg" role="alert">${esc(o.msg)}</p>`:""}
     <form id="fEmail" novalidate><label>Ton adresse e-mail<input type="email" id="aEmail" autocomplete="email" inputmode="email" autocapitalize="off" spellcheck="false" required value="${esc(o.email||"")}"></label>
      <button class="btn red" type="submit" id="aSend">Recevoir un code par e-mail</button></form>
-    <p class="muted small">Tu reçois un e-mail avec un code à 6 chiffres à saisir ici. Pas de mot de passe.</p>
+    <p class="muted small">Tu reçois un e-mail avec un code à saisir ici. Pas de mot de passe.</p>
+    <button class="linkbtn" type="button" id="aHave">J'ai déjà reçu un code par e-mail</button>
    </section>
    <p class="muted small">Tes PDF et ta progression restent sur ton appareil. Le code du site est public et le contrôle d'accès se fait dans ton navigateur : il réserve Swag aux membres, il ne protège pas de données secrètes. Seule ton adresse e-mail sert à la connexion.</p>`);
   const f=box.querySelector("#fEmail"),inp=box.querySelector("#aEmail");
   if(matchMedia("(hover:hover)").matches)inp.focus();
+  // invitation reçue par e-mail (ou code déjà demandé) : saisir le code sans en redemander un nouveau, qui annulerait le premier
+  box.querySelector("#aHave").onclick=()=>{const email=normEmail(inp.value);
+    if(!EMAIL_RE.test(email)){showMsg(box,"Saisis d'abord ton adresse e-mail, puis touche « J'ai déjà reçu un code ».");inp.focus();return}
+    ssSet(PEND_KEY,{email,at:Date.now()});screenCode(email)};
   f.onsubmit=async e=>{e.preventDefault();const email=normEmail(inp.value);
     if(!EMAIL_RE.test(email)){showMsg(box,"Cette adresse e-mail ne semble pas valide.");return}
     const bt=box.querySelector("#aSend");bt.disabled=true;bt.textContent="Vérification…";
@@ -107,7 +112,7 @@ async function sendCode(email){ // {ok} | {refused} | {msg}
   ssSet(PEND_KEY,{email,at:Date.now()});return{ok:true};
 }
 function screenCode(email,msg){
-  const box=authScreen(`<div><h2>Vérifie tes e-mails</h2><p class="muted">Un code à 6 chiffres a été envoyé à <b>${esc(email)}</b>. Il peut mettre une minute à arriver ; regarde aussi dans les indésirables.</p></div>
+  const box=authScreen(`<div><h2>Vérifie tes e-mails</h2><p class="muted">Saisis le code reçu par e-mail à <b>${esc(email)}</b>. Il peut mettre une minute à arriver ; regarde aussi dans les indésirables.</p></div>
    <section class="panel">${msg?`<p class="msg" role="alert">${esc(msg)}</p>`:""}
     <form id="fCode" novalidate><label>Code reçu par e-mail<input type="text" id="aCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="10" required></label>
      <button class="btn red" type="submit" id="aOk">Se connecter</button></form>
@@ -117,7 +122,7 @@ function screenCode(email,msg){
   const f=box.querySelector("#fCode"),inp=box.querySelector("#aCode");inp.focus();
   inp.oninput=()=>{const v=inp.value.replace(/\D/g,"");if(v!==inp.value)inp.value=v};
   f.onsubmit=async e=>{e.preventDefault();const token=inp.value.replace(/\D/g,"");
-    if(token.length<6){showMsg(box,"Le code fait 6 chiffres.");return}
+    if(token.length<6){showMsg(box,"Le code est incomplet : recopie tous les chiffres reçus par e-mail.");return}
     const bt=box.querySelector("#aOk");bt.disabled=true;bt.textContent="Connexion…";
     let res;try{res=await sb.auth.verifyOtp({email,token,type:"email"})}catch(x){res={error:x}}
     bt.disabled=false;bt.textContent="Se connecter";
@@ -148,6 +153,14 @@ function wireAuthPanel(v){const b=v.querySelector("#signOut");if(!b)return;b.onc
 
 /* ---------- onglet Membres (administration) ---------- */
 const MV={list:null,q:"",err:""};
+// invitation : envoie à la personne l'e-mail de connexion (lien du site + code), comme si elle demandait un code elle-même
+async function invite(email){
+  try{const {error}=await sb.auth.signInWithOtp({email,options:{shouldCreateUser:true,emailRedirectTo:location.origin+location.pathname}});
+    if(!error)return{ok:true};const m=String(error.message||""),w=(m.match(/(\d+)\s*seconds?/)||[])[1];
+    return{msg:w?`attendre ${w} s avant un nouvel envoi`:error.status===429?"trop d'e-mails envoyés cette heure-ci":isNetErr(error)?"pas de connexion":"envoi refusé"}}
+  catch(e){return{msg:"pas de connexion"}}
+}
+async function inviteAll(list,onProgress){const ko=[];for(let i=0;i<list.length;i++){onProgress&&onProgress(i+1,list.length);const r=await invite(list[i]);if(!r.ok)ko.push(list[i]+" ("+r.msg+")")}return ko}
 async function loadMembers(){const {data,error}=await sb.from("members").select("email,role,note,added_at").order("email");if(error)throw error;MV.list=data||[]}
 function vMembres(v){
   if(!sb){v.innerHTML=`<div class="page"><div class="empty"><h3>Hors ligne</h3><p>La liste des membres n'est disponible qu'en ligne.</p></div></div>`;return}
@@ -160,10 +173,11 @@ function vMembres(v){
     <label class="field"><span>Adresses e-mail (une par ligne, ou séparées par des virgules)</span><textarea class="memails" id="mAdd" autocapitalize="off" spellcheck="false" placeholder="prenom.nom@exemple.fr"></textarea></label>
     <label class="field"><span>Note (facultatif, visible des administrateurs seulement)</span><input type="text" id="mNote" class="filt-in" autocomplete="off" style="min-height:44px;border:1px solid var(--line);border-radius:12px;background:var(--raise);padding:0 12px"></label>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn red" type="button" id="mGo">Ajouter</button><span class="muted" id="mRes" role="status"></span></div>
-    <p class="muted small" style="margin:0">Ajouter une adresse n'envoie rien : préviens la personne qu'elle peut se connecter. La liste est aussi modifiable dans le tableau <code>members</code> de Supabase. Un membre retiré garde l'accès hors ligne au plus ${OFF_DAYS} jours, jusqu'à sa prochaine connexion à internet.</p></section>
+    <label style="display:flex;gap:8px;align-items:center;margin:0"><input type="checkbox" id="mInv" checked> Envoyer tout de suite l'e-mail d'invitation (lien du site et code de connexion)</label>
+    <p class="muted small" style="margin:0">L'invitation est l'e-mail de connexion de Swag : il contient l'adresse du site et un code. Si le code a expiré, la personne en redemande un depuis le site. La liste est aussi modifiable dans le tableau <code>members</code> de Supabase. Un membre retiré garde l'accès hors ligne au plus ${OFF_DAYS} jours, jusqu'à sa prochaine connexion à internet.</p></section>
    <section class="panel"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><h3>Liste</h3><input type="search" id="mQ" placeholder="Chercher" value="${esc(MV.q)}" aria-label="Chercher un membre" style="min-height:40px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:0 12px;flex:0 1 260px;min-width:0"></div>
     ${L.length?`<div class="mlist">${L.map(m=>{const me=m.email===AUTH.email;return`<div class="mrow"><span class="me">${esc(m.email)}${m.role==="admin"?' <span class="chip red">admin</span>':""}${me?' <span class="chip">toi</span>':""}</span>
-      <span class="ma">${me?"":`<button class="btn small ghost" type="button" data-role="${esc(m.email)}">${m.role==="admin"?"Retirer l'admin":"Rendre admin"}</button><button class="btn small" type="button" data-del="${esc(m.email)}" style="color:var(--red)">Retirer</button>`}</span>
+      <span class="ma">${me?"":`<button class="btn small ghost" type="button" data-inv="${esc(m.email)}">Renvoyer l'invitation</button><button class="btn small ghost" type="button" data-role="${esc(m.email)}">${m.role==="admin"?"Retirer l'admin":"Rendre admin"}</button><button class="btn small" type="button" data-del="${esc(m.email)}" style="color:var(--red)">Retirer</button>`}</span>
       <small>${m.note?esc(m.note)+" · ":""}ajouté le ${m.added_at?new Date(m.added_at).toLocaleDateString("fr-FR"):"?"}</small></div>`}).join("")}</div>`:`<p class="muted" style="margin:0">${MV.list.length?"Aucune adresse ne correspond.":"Personne sur la liste."}</p>`}
    </section></div>`;
   const qi=$("#mQ");qi.oninput=()=>{MV.q=qi.value;clearTimeout(qi._t);qi._t=setTimeout(()=>{render();const n=$("#mQ");n.focus();n.setSelectionRange(n.value.length,n.value.length)},250)};
@@ -175,7 +189,13 @@ function vMembres(v){
     if(!neu.length){$("#mRes").textContent="Déjà sur la liste.";return}
     $("#mGo").disabled=true;const {error}=await sb.from("members").insert(neu.map(email=>({email,note})));$("#mGo").disabled=false;
     if(error){$("#mRes").textContent=isNetErr(error)?"Pas de connexion.":"L'ajout a échoué : "+(error.message||"erreur");return}
-    try{await loadMembers()}catch(e){}render();toast(pl(neu.length,"membre ajouté","membres ajoutés")+(ok.length>neu.length?` · ${ok.length-neu.length} déjà sur la liste`:""))};
+    const doInv=$("#mInv").checked;let ko=[];
+    if(doInv){$("#mGo").disabled=true;ko=await inviteAll(neu,(i,n)=>{$("#mRes").textContent=`Envoi des invitations ${i} / ${n}…`});$("#mGo").disabled=false}
+    try{await loadMembers()}catch(e){}render();
+    toast(pl(neu.length,"membre ajouté","membres ajoutés")+(ok.length>neu.length?` · ${ok.length-neu.length} déjà sur la liste`:"")+(doInv?(ko.length?` · ${pl(neu.length-ko.length,"invitation envoyée","invitations envoyées")}`:` · ${pl(neu.length,"invitation envoyée","invitations envoyées")}`):""));
+    if(ko.length){MV.err="Invitation non envoyée à : "+ko.join(", ")+". Tu peux réessayer avec « Renvoyer l'invitation ».";render()}};
+  v.querySelectorAll("[data-inv]").forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="Envoi…";const r=await invite(b.dataset.inv);
+    b.disabled=false;b.textContent="Renvoyer l'invitation";toast(r.ok?"Invitation envoyée à "+b.dataset.inv:"Invitation non envoyée : "+r.msg)});
   v.querySelectorAll("[data-del]").forEach(b=>{let armed=false;b.onclick=async()=>{if(!armed){armed=true;b.textContent="Confirmer le retrait";b.classList.add("red");b.style.color="";return}
     b.disabled=true;const {error}=await sb.from("members").delete().eq("email",b.dataset.del);if(error){toast("Le retrait a échoué.");b.disabled=false;return}
     try{await loadMembers()}catch(e){}render();toast("Membre retiré")}});

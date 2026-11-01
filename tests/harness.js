@@ -31,7 +31,7 @@ function makeSupabase(members){
     const bearer=(req.headers()['authorization']||'').replace(/^Bearer\s+/,'');const me=st.tokens.get(bearer)||null;
     st.log.push(m+' '+u.pathname);
     if(u.pathname==='/auth/v1/otp'&&st.rateLimit)return json(route,429,{code:429,error_code:'over_email_send_rate_limit',msg:'For security purposes, you can only request this after 42 seconds.'});
-    if(u.pathname==='/auth/v1/otp'){const email=body.email;const code=String(100000+Math.floor(Math.random()*899999));st.codes.set(email,code);st.sent.push({email,code,redirect:u.searchParams.get('redirect_to')});return json(route,200,{})}
+    if(u.pathname==='/auth/v1/otp'){const email=body.email;const code=String(10000000+Math.floor(Math.random()*89999999)); /* codes à 8 chiffres, comme Supabase par défaut */st.codes.set(email,code);st.sent.push({email,code,redirect:u.searchParams.get('redirect_to')});return json(route,200,{})}
     if(u.pathname==='/auth/v1/verify'){if(st.codes.get(body.email)!==body.token)return json(route,403,{code:403,error_code:'otp_expired',msg:'Token has expired or is invalid'});st.codes.delete(body.email);return json(route,200,st.session(body.email))}
     if(u.pathname==='/auth/v1/user'){if(!me)return json(route,401,{code:401,msg:'invalid JWT'});return json(route,200,user(me))}
     if(u.pathname==='/auth/v1/token'){const e=st.refresh.get(body.refresh_token);if(!e)return json(route,400,{error:'invalid_grant'});return json(route,200,st.session(e))}
