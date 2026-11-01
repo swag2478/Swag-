@@ -48,26 +48,32 @@ async function pageImages(page,vp){
 // une image qui touche une zone masquée, ou qui se trouve entre deux zones masquées sans rien de visible entre elles
 // (suite d'un commentaire sur la page suivante, extrait de référentiel en image…), est masquée en entier
 function coverImages(q,pages,items){
-  const K=new Set(["comment","just","qroc","label","after"]);
-  for(const sg of q.segs){const pg=pages[sg.p-1];if(!pg.imgs||!pg.imgs.length)continue;
-    const hs=q.hide.filter(h=>h.p===sg.p&&K.has(h.kind));if(!hs.length)continue;
+  const K=new Set(["comment","just","qroc","label","after"]);let carry=false;
+  for(const sg of q.segs){const pg=pages[sg.p-1];
+    const hs=q.hide.filter(h=>h.p===sg.p&&K.has(h.kind));
     const cov=[...hs,...q.opts.filter(o=>o.p===sg.p)];
     const inside=(x,y)=>cov.some(h=>x>=h.l-.5&&x<=h.r+.5&&y>=h.t-.5&&y<=h.b+.5);
-    const visible=items.filter(it=>it.p===sg.p&&!inside(it.x+it.w/2,(it.top+it.bot)/2));
-    const srt=hs.slice().sort((a,b)=>a.t-b.t);const gaps=[];
+    const visible=items.filter(it=>it.p===sg.p&&it.top>=sg.y0-2&&it.bot<=sg.y1+2&&!inside(it.x+it.w/2,(it.top+it.bot)/2));
+    const srt=hs.filter(h=>h.kind!=="after").sort((a,b)=>a.t-b.t);const gaps=[];
+    // entre deux zones masquées sans rien de visible entre elles
     for(let i=0;i<srt.length;i++){const a=srt[i];const nb=srt.slice(i+1).find(b=>b.t>a.b);if(!nb)continue;
       if(!visible.some(it=>it.bot>a.b+1&&it.top<nb.t-1))gaps.push({t:a.b,b:nb.t})}
-    // fin de la question sur cette page : après la dernière zone masquée, s'il n'y a plus rien de visible jusqu'au bas du segment
-    const last=srt[srt.length-1];if(last&&last.kind!=="label"&&!visible.some(it=>it.top>last.b-1&&it.top<sg.y1))gaps.push({t:last.b,b:sg.y1});
-    // début de la page de suite : avant la première zone masquée, si rien de visible depuis le haut du segment et que la question a commencé avant
-    const first=srt[0];if(first&&q.segs[0].p<sg.p&&first.kind!=="label"&&!visible.some(it=>it.bot<first.t+1&&it.bot>sg.y0))gaps.push({t:sg.y0,b:first.t});
+    // après la dernière zone masquée, s'il n'y a plus rien de visible jusqu'au bas du segment
+    const last=srt.filter(h=>h.kind!=="label").sort((a,b)=>b.b-a.b)[0];
+    const tailHidden=!!last&&!visible.some(it=>it.top>last.b-1);
+    if(tailHidden)gaps.push({t:last.b,b:sg.y1});
+    // suite d'une zone masquée de la page précédente : du haut de la page jusqu'au premier élément visible
+    if(carry){const fv=visible.slice().sort((a,b)=>a.top-b.top)[0];const fh=srt[0];
+      const lim=Math.min(fv?fv.top:sg.y1,fh&&(!fv||fh.t<fv.top)?fh.b:Infinity);gaps.push({t:sg.y0,b:lim})}
+    carry=tailHidden||(carry&&!visible.length);
+    if(!pg.imgs||!pg.imgs.length||!hs.length&&!gaps.length)continue;
     for(const im of pg.imgs){const t=Math.max(im.t,sg.y0),b=Math.min(im.b,sg.y1);if(b-t<1)continue;
-      const touch=hs.some(h=>im.l<h.r&&im.r>h.l&&t<h.b&&b>h.t)||gaps.some(g=>t<g.b&&b>g.t);
+      const touch=hs.some(h=>im.l<h.r&&im.r>h.l&&im.t<h.b&&im.b>h.t)||gaps.some(g=>t<g.b&&b>g.t);
       if(!touch)continue;
       // fond de page ou d'encadré sur lequel du texte visible est écrit : on ne le masque pas (le texte révélateur posé dessus a déjà ses caches)
       if(visible.some(it=>{const cx=it.x+it.w/2,cy=(it.top+it.bot)/2;return cx>im.l&&cx<im.r&&cy>t&&cy<b}))continue;
       let full=true;for(let i=0;i<=10&&full;i++)for(let j=0;j<=10;j++){const x=im.l+(im.r-im.l)*i/10,y=t+(b-t)*j/10;if(!inside(x,y)){full=false;break}}
-      if(!full)q.hide.push(R(sg.p,im.l-2,t-2,im.r+2,b+2,{kind:"img"}))}}
+      if(!full){const m=R(sg.p,im.l-2,t-2,im.r+2,b+2,{kind:"img"});q.hide.push(m);cov.push(m)}}}
 }
 function makeRaster(bytes){ // rendu des pages pour lire la couleur des cases (navigateur)
   let docP=null;const cache=new Map();
