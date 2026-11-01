@@ -5,7 +5,7 @@
    2 « Réponse attendue » : Question N + type en toutes lettres à droite ; lettre, case ■/☑, texte ; QROC « Réponse attendue » ; TCS avec réponses des experts.
    Sortie par question : segs (zones à afficher), opts (cases cliquables), hide (zones masquées), qroc (réponses acceptées), type, k.
 */
-const PARSER_VERSION=3;
+const PARSER_VERSION=4;
 const GLYPHS="☑☐◎◉■□✓✔●○";
 const isGlyph=s=>s.length===1&&GLYPHS.includes(s);
 const CHECKED=s=>s==="☑"||s==="◉"||s==="✓"||s==="✔"||s==="●";
@@ -23,9 +23,51 @@ async function readPages(bytes){
     const items=(await page.getTextContent()).items.filter(it=>it.str&&it.str.trim()&&!/^[\uE000-\uF8FF\s]*$/.test(it.str)).map(it=>{
       const t=pdfjsLib.Util.transform(vp.transform,it.transform),h=it.height||Math.hypot(t[2],t[3]);
       return{s:it.str.trim(),x:t[4],y:t[5],w:it.width,h,top:t[5]-h*.95,bot:t[5]+h*.28,p};});
-    out.push({p,w:vp.width,h:vp.height,items:mergeChars(items)});
+    out.push({p,w:vp.width,h:vp.height,items:mergeChars(items),imgs:await pageImages(page,vp)});
   }
   return out;
+}
+// images dessinées sur la page (photos, encadrés, extraits de référentiel en image) : rectangles en coordonnées d'affichage
+async function pageImages(page,vp){
+  const O=pdfjsLib.OPS,ol=await page.getOperatorList(),out=[];
+  const mul=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
+  let ctm=[1,0,0,1,0,0];const stack=[];
+  const box=m=>{const t=mul(vp.transform,m),pts=[[0,0],[1,0],[0,1],[1,1]].map(([u,v])=>[t[0]*u+t[2]*v+t[4],t[1]*u+t[3]*v+t[5]]);
+    const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]),l=Math.min(...xs),r=Math.max(...xs),tp=Math.min(...ys),b=Math.max(...ys);
+    if((r-l)*(b-tp)>=60&&r-l>=3&&b-tp>=3)out.push({l,t:tp,r,b})};
+  const IMG=new Set([O.paintImageXObject,O.paintInlineImageXObject,O.paintImageMaskXObject,O.paintJpegXObject,O.paintImageXObjectRepeat,O.paintSolidColorImageMask].filter(x=>x!=null));
+  for(let i=0;i<ol.fnArray.length;i++){const fn=ol.fnArray[i],a=ol.argsArray[i];
+    if(fn===O.save)stack.push(ctm);else if(fn===O.restore){if(stack.length)ctm=stack.pop()}
+    else if(fn===O.transform)ctm=mul(ctm,a);
+    else if(fn===O.paintFormXObjectBegin){stack.push(ctm);if(a&&a[0]&&a[0].length===6)ctm=mul(ctm,a[0])}
+    else if(fn===O.paintFormXObjectEnd){if(stack.length)ctm=stack.pop()}
+    else if(IMG.has(fn))box(ctm);
+    else if(fn===O.paintInlineImageXObjectGroup||fn===O.paintImageMaskXObjectGroup){const g=a&&a[0];(Array.isArray(g)?g:[]).forEach(im=>box(im&&im.transform?mul(ctm,im.transform):ctm))}}
+  return out;
+}
+// une image qui touche une zone masquée, ou qui se trouve entre deux zones masquées sans rien de visible entre elles
+// (suite d'un commentaire sur la page suivante, extrait de référentiel en image…), est masquée en entier
+function coverImages(q,pages,items){
+  const K=new Set(["comment","just","qroc","label","after"]);
+  for(const sg of q.segs){const pg=pages[sg.p-1];if(!pg.imgs||!pg.imgs.length)continue;
+    const hs=q.hide.filter(h=>h.p===sg.p&&K.has(h.kind));if(!hs.length)continue;
+    const cov=[...hs,...q.opts.filter(o=>o.p===sg.p)];
+    const inside=(x,y)=>cov.some(h=>x>=h.l-.5&&x<=h.r+.5&&y>=h.t-.5&&y<=h.b+.5);
+    const visible=items.filter(it=>it.p===sg.p&&!inside(it.x+it.w/2,(it.top+it.bot)/2));
+    const srt=hs.slice().sort((a,b)=>a.t-b.t);const gaps=[];
+    for(let i=0;i<srt.length;i++){const a=srt[i];const nb=srt.slice(i+1).find(b=>b.t>a.b);if(!nb)continue;
+      if(!visible.some(it=>it.bot>a.b+1&&it.top<nb.t-1))gaps.push({t:a.b,b:nb.t})}
+    // fin de la question sur cette page : après la dernière zone masquée, s'il n'y a plus rien de visible jusqu'au bas du segment
+    const last=srt[srt.length-1];if(last&&last.kind!=="label"&&!visible.some(it=>it.top>last.b-1&&it.top<sg.y1))gaps.push({t:last.b,b:sg.y1});
+    // début de la page de suite : avant la première zone masquée, si rien de visible depuis le haut du segment et que la question a commencé avant
+    const first=srt[0];if(first&&q.segs[0].p<sg.p&&first.kind!=="label"&&!visible.some(it=>it.bot<first.t+1&&it.bot>sg.y0))gaps.push({t:sg.y0,b:first.t});
+    for(const im of pg.imgs){const t=Math.max(im.t,sg.y0),b=Math.min(im.b,sg.y1);if(b-t<1)continue;
+      const touch=hs.some(h=>im.l<h.r&&im.r>h.l&&t<h.b&&b>h.t)||gaps.some(g=>t<g.b&&b>g.t);
+      if(!touch)continue;
+      // fond de page ou d'encadré sur lequel du texte visible est écrit : on ne le masque pas (le texte révélateur posé dessus a déjà ses caches)
+      if(visible.some(it=>{const cx=it.x+it.w/2,cy=(it.top+it.bot)/2;return cx>im.l&&cx<im.r&&cy>t&&cy<b}))continue;
+      let full=true;for(let i=0;i<=10&&full;i++)for(let j=0;j<=10;j++){const x=im.l+(im.r-im.l)*i/10,y=t+(b-t)*j/10;if(!inside(x,y)){full=false;break}}
+      if(!full)q.hide.push(R(sg.p,im.l-2,t-2,im.r+2,b+2,{kind:"img"}))}}
 }
 function makeRaster(bytes){ // rendu des pages pour lire la couleur des cases (navigateur)
   let docP=null;const cache=new Map();
@@ -108,7 +150,7 @@ async function parsePdf(bytes,o){
       const segs=bands([Q.head,...Q.items]);
       const res=fmt===1?parseQ1(Q,pages,warn):await parseQ2(Q,pages,warn,raster);
       if(!SUPPORTED.has(res.type)||(!res.opts.length&&!res.qroc)){dropped.push({type:res.type||Q.type,n:Q.n,segs});continue}
-      oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),_end:res.endAt});
+      oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),_end:res.endAt,_items:[Q.head,...Q.items]});
     }
     if(oc.qs.length)outCases.push(oc);else if(oc.enonce.length)dropped.push({type:"dossier",segs:oc.enonce});
   }
@@ -118,6 +160,7 @@ async function parsePdf(bytes,o){
     const cut=[];for(const sg of q.segs){const W=pages[sg.p-1].w;if(sg.p>e.p)cut.push(R(sg.p,0,sg.y0,W,sg.y1,{kind:"after"}));else if(sg.p===e.p&&sg.y1>e.y+5)cut.push(R(sg.p,0,e.y+5,W,sg.y1,{kind:"after"}))}
     q.segs=q.segs.filter(sg=>sg.p<=e.p);const last=q.segs.find(sg=>sg.p===e.p);if(last)last.y1=r1(Math.min(last.y1,e.y+5));
     cut.forEach(m=>q.hide.push(m))}));
+  outCases.forEach(cs=>cs.qs.forEach(q=>{coverImages(q,pages,q._items);delete q._items}));
   pages.forEach((pg,i)=>{const its=pg.items;if(!its.length)return;pageInfo[i].x0=r1(Math.max(0,Math.min(...its.map(x=>x.x))-10));pageInfo[i].x1=r1(Math.min(pg.w,Math.max(...its.map(x=>x.x+x.w))+10))});
   return{v:PARSER_VERSION,fmt,pages:pageInfo,cases:outCases,nq:outCases.reduce((s,cs)=>s+cs.qs.length,0),dropped:dropped.map(d=>({type:d.type,n:d.n,segs:d.segs})),warn};
 }
