@@ -49,13 +49,13 @@ const RUN=async(page,file,fn)=>page.evaluate(async([b,fn])=>{try{const by=Uint8A
 const cy=(t.top+t.bot)/2;if(cy<seg.y0||cy>seg.y1||t.x+t.w<x0||t.x>x1)continue;
         const ya=Math.max(t.top+1,seg.y0),yb=Math.min(t.bot-1,seg.y1),xa=Math.max(t.x,x0),xb=Math.min(t.x+Math.max(t.w,1),x1);if(yb-ya<1.5)continue;
         for(let i=0;i<=8;i++)for(let j=0;j<=4;j++){const px=xa+(xb-xa)*i/8,py=ya+(yb-ya)*j/4;
-          let sx=R.left+(px-x0)/cw*R.width,sy=R.top+(py-seg.y0)/ch*R.height;sx=Math.min(Math.max(sx,R.left+.6),R.right-.6);if(i===0)sx+=.6;if(i===8)sx-=.6;
+          let sx=R.left+(px-x0)/cw*R.width,sy=R.top+(py-seg.y0)/ch*R.height;sx=Math.min(Math.max(sx,R.left+.6),R.right-.6);sy=Math.min(Math.max(sy,R.top+.6),R.bottom-.6);if(i===0)sx+=.6;if(i===8)sx-=.6;
           const el=document.elementFromPoint(sx,sy);pts++;if(!el||!el.closest('.opt,.mask')){out.push(`p${t.p} « ${t.s.slice(0,40)} » (${t.why}) visible en (${Math.round(px)},${Math.round(py)})`);break}}}})};
     // les caches .mask ont pointer-events:none (ils laissent passer les clics) : on les rend « touchables » le temps du contrôle
     const stl=document.createElement('style');stl.textContent='.mask{pointer-events:auto!important}';document.head.appendChild(stl);
     // barres fixes (navigation, boutons du bas) : elles recouvrent la page à l'écran et fausseraient elementFromPoint
     const fixed=[...document.querySelectorAll('body *')].filter(e=>/fixed|sticky/.test(getComputedStyle(e).position));fixed.forEach(e=>{e.dataset.v=e.style.visibility;e.style.visibility='hidden'});
-    try{if(document.querySelector('#en'))zone(document.querySelector('#en'),C.enonce);zone(document.querySelector('#qc'),Q.segs)}finally{stl.remove();fixed.forEach(e=>{e.style.visibility=e.dataset.v||''})}
+    try{if(document.querySelector('#en'))zone(document.querySelector('#en'),C.enonce);zone(document.querySelector('#qc'),Q.segs)}finally{stl.remove();fixed.forEach(e=>{e.style.visibility=e.dataset.v||''});scrollTo(0,0)}
     return{bad:[...new Set(out)],pts}});
   for(const A1 of L1){const A2=L2.find(x=>x.name===A1.name);if(!A2&&dupNames.includes(A1.name))continue;if(!H.check(!!A2&&JSON.stringify(A2.qs)===JSON.stringify(A1.qs),`${A1.name} : même découpage dans les deux versions`))continue;
     for(let c=0;c<A1.qs.length;c++)for(let q=0;q<A1.qs[c];q++){
