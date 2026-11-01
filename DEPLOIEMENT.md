@@ -56,6 +56,14 @@ les adresses absentes de `members`.
 
 ## 2. Hébergement
 
+### GitHub Pages (choix retenu)
+- Sur GitHub : *Settings → Pages → Build and deployment → Source* : **GitHub Actions**.
+- Chaque modification de `main` lance `.github/workflows/pages.yml` (build `python3 build.py`, publication de `dist/`).
+- Adresse : `https://<compte>.github.io/<dépôt>/`. Le compte GitHub dédié est anonyme ; renommer le dépôt change l'adresse.
+- GitHub Pages ignore `_headers` : ce n'est pas grave, ces en-têtes sont des protections en plus.
+
+### Autres possibilités
+
 Commande de build : `python3 build.py` · dossier publié : `dist/`. Les en-têtes HTTP sont dans `dist/_headers`
 (lu par Cloudflare Pages et Netlify). Le site doit être servi en **HTTPS** (fourni par les deux hébergeurs).
 
@@ -71,11 +79,8 @@ Commande de build : `python3 build.py` · dossier publié : `dist/`. Les en-têt
 
 ## 3. Anonymat : à vérifier avant de diffuser l'adresse
 - [ ] L'adresse du site ne contient pas ton pseudo (nom de projet Cloudflare / Netlify neutre).
-- [ ] Le dépôt : `github.com/<pseudo>/…` montre ton pseudo, et **les premiers commits de l'historique sont signés de ton pseudo**.
-      Si le dépôt doit rester public, crée une organisation GitHub dédiée et pousses-y un **historique neuf**, par exemple :
-      `git checkout --orphan propre && git commit -m "Swag" && git push <nouvelle-adresse> propre:main`,
-      avec un nom et un e-mail d'auteur neutres (`git config user.name "Swag"`, e-mail `…@users.noreply.github.com` de l'organisation).
-      Sinon, passe le dépôt en **privé** et publie avec Cloudflare Pages ou Netlify.
+- [ ] Le dépôt est sur le compte GitHub dédié (anonyme), jamais sur ton compte perso.
+      Les commits sont signés « Claude » ou du compte dédié : ne pousse jamais depuis ton compte perso.
 - [ ] Expéditeur des e-mails : SMTP avec une adresse et un nom neutres (étape 1.6).
 - [ ] Ton adresse n'est que dans la table `members` de Supabase, jamais dans le dépôt.
 

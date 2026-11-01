@@ -1,7 +1,7 @@
-// Largeurs iPad (paysage, portrait) et téléphone, clair et sombre : aucun défilement horizontal, sur chaque écran.
+// Largeurs ordinateur (1920, 1440, 1280), iPad (paysage, portrait) et téléphone, clair et sombre : aucun défilement horizontal, sur chaque écran.
 // Captures dans tests/out/ pour un contrôle à l'œil.
 const H=require('./harness');const path=require('path');
-const SIZES=[['ipad-paysage',{width:1180,height:820},false],['ipad-portrait',{width:820,height:1180},false],['telephone',{width:390,height:844},true],['petit-telephone',{width:320,height:640},false]];
+const SIZES=[['ordinateur-1920',{width:1920,height:1080},false],['ordinateur-1440',{width:1440,height:900},true],['portable-1280',{width:1280,height:720},false],['ipad-paysage',{width:1180,height:820},false],['ipad-portrait',{width:820,height:1180},false],['telephone',{width:390,height:844},true],['petit-telephone',{width:320,height:640},false]];
 (async()=>{const browser=await H.newBrowser();
   for(const [name,vp,dark] of SIZES){const o=await H.open({browser,vp,dark,touch:vp.width<1000,email:'admin@exemple.fr',members:{'admin@exemple.fr':'admin'}});const {page}=o;
     const sw=async where=>{const [s,w]=await page.evaluate(()=>[document.documentElement.scrollWidth,innerWidth]);H.check(s<=w,`${name} · ${where} : pas de défilement horizontal (${s} ≤ ${w})`);

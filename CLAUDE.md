@@ -15,7 +15,8 @@ Il faut maintenant en faire un site autonome. **Langue de l'interface et des éc
 - **Pas d'artefact Claude** : retirer toute dépendance à `window.claude` (db, assets, user, sample, downloads).
 - **Pas d'IA** : supprimer les explications Claude du carnet d'erreurs (et le réglage associé).
   Le carnet garde la capture, la réponse donnée et la correction officielle.
-- **Anonymat** : le pseudo GitHub et l'e-mail du propriétaire ne doivent apparaître nulle part (site, adresse, dépôt, commits, e-mails envoyés). Hébergement à confirmer avec lui (dépôt privé + Cloudflare Pages / Netlify, ou organisation GitHub dédiée).
+- **Anonymat** : le pseudo GitHub personnel et l'e-mail personnel du propriétaire ne doivent apparaître nulle part (site, adresse, dépôt, commits, e-mails envoyés). Le dépôt est sur un compte GitHub dédié et anonyme : c'est voulu.
+- **Hébergement choisi : GitHub Pages** (workflow `.github/workflows/pages.yml`). Le site doit marcher aussi bien sur **ordinateur** que sur iPad et téléphone.
 - **Adhésions gratuites gérées par liste d'e-mails** via **Supabase** (compte du propriétaire) :
   connexion par code à 6 chiffres reçu par e-mail (le lien magique ouvre Safari et pas l'app installée
   sur iPad, donc prévoir la saisie du code ; gérer aussi le lien). L'e-mail de l'admin n'est jamais écrit dans le dépôt : le propriétaire l'insère lui-même dans Supabase.
@@ -73,11 +74,9 @@ Il faut maintenant en faire un site autonome. **Langue de l'interface et des éc
    Le propriétaire ne tolère **aucune erreur de masquage** : revérifier systématiquement.
 
 ## État (novembre 2026)
-Étapes 1 à 4 et 6 faites et vérifiées (`npm test`, voir README) ; étape 5 préparée (`DEPLOIEMENT.md`, `netlify.toml`,
-`src/_headers`) mais **la mise en ligne attend le choix d'hébergement du propriétaire** et la configuration Supabase
+Étapes 1 à 4 et 6 faites et vérifiées (`npm test`, voir README) ; étape 5 : GitHub Pages (workflow prêt) ; la mise en ligne attend l'activation de Pages et la configuration Supabase
 (`src/config.js` est vide tant qu'il n'a pas créé le projet). Les tests tournent sur des corrigés fictifs
 (`tests/make-fixtures.py`) : refaire `npm test` avec de vrais corrigés déposés dans `tests/fixtures/`.
-Anonymat : les deux premiers commits de l'historique portent le pseudo GitHub du propriétaire (voir DEPLOIEMENT.md § 3).
 
 ## Repères dans le code
 - `src/parse3.js` (PARSER_VERSION=3) : lecteur des 3 formats de corrigés (Valide/Faux, « Réponse attendue »,
