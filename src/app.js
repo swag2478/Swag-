@@ -15,7 +15,17 @@ const mmss=s=>{s=Math.max(0,Math.ceil(s));const h=Math.floor(s/3600),m=Math.floo
 function toast(msg){document.querySelectorAll(".toast").forEach(t=>t.remove());const t=document.createElement("div");t.className="toast";t.setAttribute("role","status");t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),3800)}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 const qKey=(a,c,q)=>"r_"+a+"_"+c+"_"+q;
-async function sha1(bytes){try{const h=await crypto.subtle.digest("SHA-1",bytes);return[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join("")}catch(e){return""}}
+function sha1js(m){ // repli si crypto.subtle est absent (page servie hors HTTPS)
+  const n=m.length,w=new Uint32Array(80),L=((n+8>>6)+1)*16,x=new Uint32Array(L);
+  for(let i=0;i<n;i++)x[i>>2]|=m[i]<<(24-(i&3)*8);x[n>>2]|=0x80<<(24-(n&3)*8);x[L-1]=n*8>>>0;x[L-2]=Math.floor(n/0x20000000);
+  let a=0x67452301,b=0xEFCDAB89,c=0x98BADCFE,d=0x10325476,e=0xC3D2E1F0;const rl=(v,k)=>v<<k|v>>>(32-k);
+  for(let i=0;i<L;i+=16){let A=a,B=b,C=c,D=d,E=e;
+    for(let j=0;j<80;j++){w[j]=j<16?x[i+j]:rl(w[j-3]^w[j-8]^w[j-14]^w[j-16],1);
+      const t=(rl(A,5)+(j<20?(B&C|~B&D)+0x5A827999:j<40?(B^C^D)+0x6ED9EBA1:j<60?(B&C|B&D|C&D)+0x8F1BBCDC:(B^C^D)+0xCA62C1D6)+E+w[j])>>>0;E=D;D=C;C=rl(B,30)>>>0;B=A;A=t}
+    a=a+A>>>0;b=b+B>>>0;c=c+C>>>0;d=d+D>>>0;e=e+E>>>0}
+  return[a,b,c,d,e].map(v=>v.toString(16).padStart(8,"0")).join("");
+}
+async function sha1(bytes){try{if(window.crypto&&crypto.subtle){const h=await crypto.subtle.digest("SHA-1",bytes);return[...new Uint8Array(h)].map(b=>b.toString(16).padStart(2,"0")).join("")}}catch(e){}return sha1js(bytes)}
 
 /* ---------- thème ---------- */
 function curTheme(){try{return localStorage.getItem("swag-theme")||"auto"}catch(e){return"auto"}}
@@ -23,17 +33,13 @@ function setTheme(t){if(t==="auto")document.documentElement.removeAttribute("dat
 setTheme(curTheme());
 
 /* ---------- UE, examens, sessions ---------- */
-const UES=[["cardio","Cardiologie"],["pneumo","Pneumologie"],["nephro","Néphrologie"],["hepato","Hépato-gastro-entérologie"],["gastro","Hépato-gastro-entérologie"],["neuro","Neurologie"],["pedia","Pédiatrie"],["gyn","Gynécologie-obstétrique"],["obst","Gynécologie-obstétrique"],["malinf","Maladies infectieuses"],["infectio","Maladies infectieuses"],["hemato","Hématologie"],["onco","Oncologie"],["endoc","Endocrinologie"],["diabet","Endocrinologie"],["rhumato","Rhumatologie"],["ortho","Orthopédie-traumatologie"],["trauma","Orthopédie-traumatologie"],["psy","Psychiatrie"],["dermato","Dermatologie"],["orl","ORL"],["ophtalmo","Ophtalmologie"],["urgence","Urgences-réanimation"],["rea","Urgences-réanimation"],["geria","Gériatrie"],["uro","Urologie"],["medle","Médecine légale"],["med leg","Médecine légale"],["sante pub","Santé publique"],["medecine interne","Médecine interne"],["vasc","Médecine vasculaire"],["neurochir","Neurochirurgie"],["addicto","Addictologie"],["chir","Chirurgie"]];
-function guessUE(name){const n=name.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[_-]/g," ");for(const [k,v] of UES)if(n.includes(k))return v;return ""}
+// UE, épreuve et date sont devinées par src/meta.js (même code que tools/meta.js)
+const {guessUE,guessDate,guessExam}=META;
+const UE_TODO="À classer";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
-const MRE=[/janv/,/f[ée]v/,/mars/,/avr/,/mai/,/juin/,/juil/,/ao[uû]t/,/sept/,/oct/,/nov/,/d[ée]c/];
-function guessDate(s){s=String(s||"").toLowerCase();const y=(s.match(/(20\d\d)/)||[])[1]||((s.match(/[^\d](\d\d)(?:[^\d]|$)/)||[])[1]?"20"+s.match(/[^\d](\d\d)(?:[^\d]|$)/)[1]:"");
-  let m=MRE.findIndex(r=>r.test(s));if(m<0){const mm=s.match(/\b\d{1,2}[_\/.-](\d{1,2})[_\/.-](\d{2,4})\b/);if(mm){m=+mm[1]-1}}
-  if(!y)return"";return y+"-"+String(m>=0?m+1:0).padStart(2,"0")}
 function sessionLabel(d){if(!d)return"";const [y,m]=d.split("-").map(Number);return m?(MONTHS[m-1].charAt(0).toUpperCase()+MONTHS[m-1].slice(1))+" "+y:String(y)}
-function guessExam(s){const m=String(s).toUpperCase().match(/\b(MM\s?\d|EDN|ECOS|PARTIEL|SESSION\s?\d|ED\s?\d)\b/);return m?m[1].replace(/\s/g,""):""}
 function cleanName(f){return f.replace(/\.pdf$/i,"").replace(/[_]+/g," ").replace(/\s+/g," ").trim()}
-const UE_LIST=[...new Set(UES.map(u=>u[1]))].sort((a,b)=>a.localeCompare(b,"fr"));
+const UE_LIST=[...META.UE_NAMES,UE_TODO];
 const ueOf=A=>A.ue||"Sans UE";
 const dateOf=A=>A.date||guessDate(A.session||A.name)||"";
 const yearOf=A=>(dateOf(A).split("-")[0])||"Année inconnue";
@@ -59,42 +65,39 @@ const cls=s=>s>=1?"ok":s>0?"mid":"ko";
 const single=Q=>Q.type==="QRU"||Q.type==="TCS";
 
 /* ---------- stockage ---------- */
-const DEF={b1:.5,b2:.2,qrpl:"prorata",expl:"demande",nDos:5,tQ:90};
-const S={mode:"local",annales:new Map(),results:new Map(),series:new Map(),expl:new Map(),settings:{...DEF},pdfs:new Map(),sample:null,imgs:false,downloads:null,playSaved:null};
+const DEF={b1:.5,b2:.2,qrpl:"prorata",nDos:5,tQ:90};
+const S={mode:"local",annales:new Map(),results:new Map(),series:new Map(),settings:{...DEF},pdfs:new Map(),playSaved:null,pending:new Map(),persist:null};
 let idbP=null;
 function idb(){return idbP||(idbP=new Promise((res,rej)=>{const r=indexedDB.open("swag",1);r.onupgradeneeded=()=>{r.result.createObjectStore("pdf");r.result.createObjectStore("doc")};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}))}
 function itx(store,mode,fn){return idb().then(d=>new Promise((res,rej)=>{const t=d.transaction(store,mode),q=fn(t.objectStore(store));t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error)}))}
 function route(k,v){
   if(v.kind==="annale")S.annales.set(k,{...v,id:k});else if(v.kind==="result")S.results.set(k,v);
-  else if(v.kind==="serie")S.series.set(k,v);else if(v.kind==="expl")S.expl.set(k,v);else if(v.kind==="settings")S.settings={...DEF,...v};
-  else if(v.kind==="play")S.playSaved=v;
+  else if(v.kind==="serie")S.series.set(k,v);else if(v.kind==="settings")S.settings={...DEF,...v};
+  else if(v.kind==="play")S.playSaved=v;else if(v.kind==="pending")S.pending.set(k,v);
 }
-async function initStore(){
-  let db=null,assets=null,uid=null;
-  try{if(window.claude&&claude.use){const [d,a,u,sm,dl]=await Promise.all([claude.use("db"),claude.use("assets"),claude.use("user"),claude.use("sample"),claude.use("downloads")]);db=d;assets=a;uid=u?await u.id():null;S.sample=sm;S.downloads=dl;
-    if(sm){try{const L=await sm.limits();S.imgs=!!(L&&L.images)}catch(e){}}}}catch(e){}
-  if(db&&assets&&uid){
-    try{S.col=db.collection("data/users/"+uid);const snap=await S.col.get();S.mode="remote";S.assets=assets;snap.docs.forEach(d=>route(d.id,d.data()));return}catch(e){S.mode="local"}
-  }
+async function initStore(){ // tout reste sur l'appareil : IndexedDB (base « swag »)
   try{const keys=await itx("doc","readonly",s=>s.getAllKeys()),vals=await itx("doc","readonly",s=>s.getAll());(keys||[]).forEach((k,i)=>route(k,vals[i]))}catch(e){S.mode="none"}
+  askPersist();
 }
+async function askPersist(){ // demande au navigateur de ne pas effacer les données de Swag
+  try{if(navigator.storage&&navigator.storage.persist){S.persist=await navigator.storage.persisted();if(!S.persist)S.persist=await navigator.storage.persist()}}catch(e){S.persist=null}
+}
+const quotaErr=e=>e&&(e.name==="QuotaExceededError"||e.code==="quota_exceeded"||e.inner&&e.inner.name==="QuotaExceededError");
 async function putDoc(k,v){
   const {id,...body}=v;
-  if(S.mode==="remote")await S.col.doc(k).set(body);
-  else if(S.mode==="local")await itx("doc","readwrite",s=>s.put(body,k));
+  if(S.mode==="local")await itx("doc","readwrite",s=>s.put(body,k));
 }
-async function delDoc(k){if(S.mode==="remote")await S.col.doc(k).delete();else if(S.mode==="local")await itx("doc","readwrite",s=>s.delete(k))}
-async function saveAnnale(A,bytes){
-  if(S.mode==="remote"){const up=await S.assets.upload(new Blob([bytes],{type:"application/pdf"}),{type:"application/pdf"});A.assetId=up.id}
-  else if(S.mode==="local")await itx("pdf","readwrite",s=>s.put(bytes,A.id));
-  await putDoc(A.id,A);S.annales.set(A.id,A);S.pdfs.set(A.id,bytes);
+async function delDoc(k){if(S.mode==="local")await itx("doc","readwrite",s=>s.delete(k))}
+async function saveAnnale(A,bytes,keep){
+  if(S.mode==="local")await itx("pdf","readwrite",s=>s.put(bytes,A.id));
+  await putDoc(A.id,A);S.annales.set(A.id,A);if(keep!==false)S.pdfs.set(A.id,bytes);
 }
 async function removeAnnale(A){
-  const ks=[...S.results.keys(),...S.expl.keys()].filter(k=>k.startsWith("r_"+A.id+"_")||k.startsWith("e_"+A.id+"_"));
-  for(const k of ks){await delDoc(k);S.results.delete(k);S.expl.delete(k)}
+  const ks=[...S.results.keys()].filter(k=>k.startsWith("r_"+A.id+"_"));
+  for(const k of ks){await delDoc(k);S.results.delete(k)}
   await delDoc(A.id);
-  if(S.mode==="remote"&&A.assetId){try{await S.assets.delete(A.assetId)}catch(e){}}else if(S.mode==="local")await itx("pdf","readwrite",s=>s.delete(A.id));
-  S.annales.delete(A.id);S.pdfs.delete(A.id);
+  if(S.mode==="local")await itx("pdf","readwrite",s=>s.delete(A.id));
+  S.annales.delete(A.id);S.pdfs.delete(A.id);docCache.delete(A.id);
 }
 async function saveResult(a,c,q,s,sel,txt){
   const k=qKey(a,c,q),o=S.results.get(k),d=today();
@@ -102,39 +105,22 @@ async function saveResult(a,c,q,s,sel,txt){
   const err=o&&o.err?o.err.slice():[0,0];if(s<1){err[0]++;err[1]=d}
   const v={kind:"result",a,c,q,last:s,best:Math.max(s,o?o.best:0),tries:(o?o.tries:0)+1,at:Date.now(),sel:[...sel],txt:txt||"",hist,err};
   S.results.set(k,v);
-  try{await putDoc(k,v)}catch(e){toast(e&&e.code==="quota_exceeded"?"Stockage plein : supprime une annale pour continuer.":"Ce résultat n'a pas pu être enregistré.")}
+  try{await putDoc(k,v)}catch(e){toast(quotaErr(e)?"Stockage plein : supprime une annale pour continuer.":"Ce résultat n'a pas pu être enregistré.")}
 }
 async function saveSettings(p){Object.assign(S.settings,p);try{await putDoc("settings",{kind:"settings",...S.settings})}catch(e){toast("Le réglage n'a pas pu être enregistré.")}}
 let playTimer=0;
 function savePlay(){clearTimeout(playTimer);playTimer=setTimeout(()=>{if(play){const v={kind:"play",...play,key:undefined};delete v.key;S.playSaved=v;putDoc("play",v).catch(()=>{})}},600)}
 function clearPlay(){clearTimeout(playTimer);S.playSaved=null;delDoc("play").catch(()=>{})}
 
-/* ---------- lecture des fichiers publiés avec la page (essais multiples + diagnostic) ---------- */
-let lastFetchErr="";
-async function getFile(path,kind){
-  const urls=[...new Set([path,"./"+path,new URL(path,document.baseURI).href,new URL(path,location.href).href])];
-  let last="";
-  for(let attempt=0;attempt<2;attempt++){
-    for(const u of urls){
-      try{const r=await fetch(u,{cache:attempt?"reload":"default",credentials:"same-origin"});
-        if(r.ok)return kind==="json"?await r.json():new Uint8Array(await r.arrayBuffer());
-        last=`HTTP ${r.status} sur ${u.replace(/^https?:\/\/[^/]+/,"")}`}
-      catch(e){last=`${e&&e.name||"Erreur"} : ${e&&e.message||e} (${u.replace(/^https?:\/\/[^/]+/,"")})`}
-    }
-    await new Promise(r=>setTimeout(r,800));
-  }
-  lastFetchErr=last;throw new Error(last);
-}
 async function pdfBytes(A){
-  if(S.pdfs.has(A.id))return S.pdfs.get(A.id);let b;
-  if(A.builtin){try{b=await itx("pdf","readonly",s=>s.get("b:"+A.id))}catch(e){b=null}if(b){S.pdfs.set(A.id,b);return b}
-    try{b=await getFile(A.blob?"/_blob/"+A.blob:"annales/"+A.file,"bin")}catch(e){if(!A.blob)throw e;b=await getFile("annales/"+A.file,"bin")}}
-  else if(S.mode==="remote"){const r=await fetch("/_blob/"+A.assetId);if(!r.ok)throw new Error("pdf");b=new Uint8Array(await r.arrayBuffer())}
-  else b=await itx("pdf","readonly",s=>s.get(A.id));
-  if(!b)throw new Error("pdf");S.pdfs.set(A.id,b);return b;
+  if(S.pdfs.has(A.id))return S.pdfs.get(A.id);
+  const b=await itx("pdf","readonly",s=>s.get(A.id));
+  if(!b)throw new Error("Le PDF de cette annale n'est plus sur cet appareil.");
+  S.pdfs.set(A.id,b);if(S.pdfs.size>6)S.pdfs.delete(S.pdfs.keys().next().value);return b;
 }
 const docCache=new Map(),pageCache=new Map();
-function pdfDoc(A){if(!docCache.has(A.id)){const p=pdfBytes(A).then(b=>pdfjsLib.getDocument({data:b.slice()}).promise);p.catch(()=>docCache.delete(A.id));docCache.set(A.id,p)}return docCache.get(A.id)}
+const PDFJS=window.pdfjsLib;
+function pdfDoc(A){if(!docCache.has(A.id)){const p=pdfBytes(A).then(b=>PDFJS.getDocument({data:b.slice()}).promise);p.catch(()=>docCache.delete(A.id));docCache.set(A.id,p)}return docCache.get(A.id)}
 async function pageCanvas(A,p,scale){
   const s=scale||Math.min(3,Math.max(2,(window.devicePixelRatio||1)*1.4)),key=A.id+":"+p+":"+s;if(pageCache.has(key))return pageCache.get(key);
   const pr=(async()=>{const doc=await pdfDoc(A),page=await doc.getPage(p),vp=page.getViewport({scale:s});
@@ -143,19 +129,11 @@ async function pageCanvas(A,p,scale){
   if(!scale){pageCache.set(key,pr);if(pageCache.size>12)pageCache.delete(pageCache.keys().next().value)}
   pr.catch(()=>pageCache.delete(key));return pr;
 }
-async function segText(A,segs){
-  const doc=await pdfDoc(A);let out=[];
-  for(const sg of segs){const page=await doc.getPage(sg.p),vp=page.getViewport({scale:1});
-    const tc=await page.getTextContent();
-    const words=tc.items.filter(it=>it.str&&it.str.trim()).map(it=>{const t=pdfjsLib.Util.transform(vp.transform,it.transform);return{s:it.str.trim(),y:t[5]}}).filter(w=>w.y>sg.y0&&w.y<=sg.y1+4&&!isGlyph(w.s));
-    out.push(words.map(w=>w.s).join(" "))}
-  return out.join(" ").replace(/\s+/g," ").slice(0,7000);
-}
-
 /* ---------- calculs ---------- */
-const sortAnn=(a,b)=>ueOf(a).localeCompare(ueOf(b),"fr")||dateOf(b).localeCompare(dateOf(a))||(a.exam||"").localeCompare(b.exam||"");
+const ueCmp=(a,b)=>(a===UE_TODO)-(b===UE_TODO)||a.localeCompare(b,"fr");
+const sortAnn=(a,b)=>ueCmp(ueOf(a),ueOf(b))||dateOf(b).localeCompare(dateOf(a))||(a.exam||"").localeCompare(b.exam||"");
 const annList=()=>[...S.annales.values()].filter(A=>!A.broken).sort(sortAnn);
-const ueNames=()=>[...new Set(annList().map(ueOf))].sort((a,b)=>a.localeCompare(b,"fr"));
+const ueNames=()=>[...new Set(annList().map(ueOf))].sort(ueCmp);
 function resOf(list){const ids=new Set(list.map(A=>A.id));return[...S.results.values()].filter(v=>ids.has(v.a)&&S.annales.has(v.a)&&qOf(v.a,v.c,v.q))}
 function qOf(a,c,q){const A=S.annales.get(a);return A&&A.data.cases[c]&&A.data.cases[c].qs[q]}
 function statsFor(list){const rs=resOf(list);const n=list.reduce((s,A)=>s+A.nq,0);const sum=rs.reduce((s,v)=>s+v.last,0);
@@ -176,23 +154,32 @@ function nav(){
   const errs=errorsFor(annList()).length;
   const tabs=[["accueil","Accueil",""],["annales","Annales",`<span class="pill soft">${S.annales.size}</span>`],["series","Séries",""],
     ...(play?[["play","Série en cours",`<span class="pill">${play.i+1}/${play.items.length}</span>`]]:[]),
-    ["carnet","Carnet d'erreurs",errs?`<span class="pill">${errs}</span>`:""],["stats","Statistiques",""],["reglages","Réglages",""]];
+    ["carnet","Carnet d'erreurs",errs?`<span class="pill">${errs}</span>`:""],["stats","Statistiques",""],["reglages","Réglages",""],...(isAdmin()?[["membres","Membres",""]]:[])];
   $("#nav").innerHTML=tabs.map(([id,t,b])=>`<button type="button" data-tab="${id}" ${V.tab===id||(V.tab==="bilan"&&id==="series")?'aria-current="page"':""}>${t}${b}</button>`).join("");
   $("#nav").querySelectorAll("button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 }
 function go(tab){V.tab=tab;render();scrollTo(0,0)}
+const isAdmin=()=>typeof AUTH!=="undefined"&&AUTH.role==="admin"&&typeof vMembres==="function";
 function render(){
   nav();const v=$("#view");stopChrono();
   document.querySelector(".act")?.remove();
   if(V.tab==="play"&&play)return showQ();
   if(V.tab==="play")V.tab="accueil";
-  const f={accueil:vAccueil,annales:vAnnales,series:vSeries,carnet:vCarnet,stats:vStats,reglages:vReglages,bilan:vBilan}[V.tab]||vAccueil;
+  const f={accueil:vAccueil,annales:vAnnales,series:vSeries,carnet:vCarnet,stats:vStats,reglages:vReglages,bilan:vBilan,membres:isAdmin()?vMembres:null}[V.tab]||vAccueil;
   f(v);
 }
-function emptyHTML(){return`<div class="empty"><h3>Commence par un PDF</h3><p>Ajoute un corrigé (UNESS avec Valide / Faux, ou avec la colonne « Réponse attendue »). Swag le découpe en dossiers et en questions, masque les réponses et suit ta progression par UE.</p>
-  <div class="row"><button class="btn red" type="button" data-add>Ajouter un PDF</button></div></div>`}
+function emptyHTML(){return`<div class="empty"><h3>Commence par tes corrigés</h3><p>Importe tes corrigés PDF (UNESS avec Valide / Faux, ou avec la colonne « Réponse attendue ») : tu peux en choisir plusieurs d'un coup. Swag les découpe en dossiers et en questions, masque les réponses et suit ta progression par UE. Les PDF restent sur ton appareil.</p>
+  <div class="row"><button class="btn red" type="button" data-add>Importer mes PDF</button></div></div>`}
+/* ---------- iPad / iPhone : installer Swag sur l'écran d'accueil ---------- */
+const isIOS=()=>/iPad|iPhone|iPod/.test(navigator.userAgent)||navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1;
+const isStandalone=()=>navigator.standalone===true||matchMedia("(display-mode: standalone)").matches;
+function installHTML(force){
+  if(!isIOS()||isStandalone())return"";
+  let off=false;try{off=!force&&localStorage.getItem("swag-ios-hint")==="0"}catch(e){}if(off)return"";
+  return`<div class="resume hint" id="iosHint"><div><b>Installe Swag sur l'écran d'accueil.</b> Dans Safari : bouton Partager, puis « Sur l'écran d'accueil ». Sinon Safari peut effacer tes annales et ta progression après 7 jours sans visite. Une fois installé, ouvre Swag depuis son icône (il faudra te reconnecter une fois, avec le code reçu par e-mail).</div>${force?"":`<button class="btn small" type="button" id="iosHideBtn">Plus tard</button>`}</div>`}
+function wireInstall(v){const b=v.querySelector("#iosHideBtn");if(b)b.onclick=()=>{try{localStorage.setItem("swag-ios-hint","0")}catch(e){}v.querySelector("#iosHint").remove()}}
 function wire(root){
-  root.querySelectorAll("[data-add]").forEach(b=>b.onclick=openAdd);
+  root.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>openImport());
   root.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{const A=S.annales.get(b.dataset.go);startSeries(itemsOf(A),titleOf(A)+" · "+ueOf(A),b.dataset.mode||"train")});
   root.querySelectorAll("[data-err]").forEach(b=>b.onclick=()=>{const A=S.annales.get(b.dataset.err);startSeries(errorsFor([A]).map(r=>({a:r.a,c:r.c,q:r.q})),"Erreurs · "+titleOf(A),"train")});
   root.querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>openEdit(S.annales.get(b.dataset.edit)));
@@ -204,20 +191,21 @@ function wire(root){
 /* ---------- Accueil ---------- */
 function vAccueil(v){
   const all=annList();
-  if(!all.length){v.innerHTML=`<div class="page"><div class="head"><div><h2>Tes annales, sans le corrigé sous les yeux</h2><p>Swag masque les réponses des corrigés et te note au barème EDN.</p></div></div>${emptyHTML()}</div>`;wire(v);return}
+  if(!all.length){v.innerHTML=`<div class="page"><div class="head"><div><h2>Tes annales, sans le corrigé sous les yeux</h2><p>Swag masque les réponses des corrigés et te note au barème EDN.</p></div></div>${installHTML()}${emptyHTML()}</div>`;wire(v);wireInstall(v);return}
   const a7=activity(7),n7=a7.reduce((s,x)=>s+x.n,0),p7=a7.reduce((s,x)=>s+x.p,0),errs=errorsFor(all).length,g=statsFor(all);
   const ser=[...S.series.values()].sort((a,b)=>b.at-a.at).slice(0,5);
   const sv=!play&&S.playSaved&&S.playSaved.items&&S.playSaved.items.some(it=>qOf(it.a,it.c,it.q))?S.playSaved:null;
   const cur=play||sv;
   v.innerHTML=`<div class="page">
    <div class="head"><div><h2>${new Date().getHours()<18?"Bonjour":"Bonsoir"}</h2><p>${pl(all.length,"annale")} · ${g.done} / ${g.n} questions faites · moyenne ${g.avg==null?"pas encore de note":f20(g.avg)+" / 20"}</p></div></div>
+   ${installHTML()}
    ${cur?`<div class="resume"><div><b>Série en cours :</b> ${esc(cur.title)} <span style="color:var(--muted)">· question ${cur.i+1} sur ${cur.items.length}${cur.mode==="exam"?" · examen":""}</span></div><button class="btn red" type="button" id="resume">Reprendre</button></div>`:""}
    <div class="tiles"><div class="tile"><span>Note · 7 jours</span><b>${n7?f20(p7/n7*20):"–"}<small> /20</small></b></div><div class="tile"><span>Questions · 7 jours</span><b>${n7}</b></div><div class="tile"><span>Jours d'affilée</span><b>${streak()}</b></div><div class="tile hot"><span>À retravailler</span><b>${errs}</b></div></div>
    <div class="quick"><button class="btn red" type="button" id="qRand">Série au hasard · ${S.settings.nDos||"tous les"} dossiers</button><button class="btn" type="button" id="qErr" ${errs?"":"disabled"}>Refaire mes erreurs (${errs})</button><button class="btn" type="button" id="qComp">Composer une série</button></div>
    <section class="panel"><h3>Par UE</h3><div class="uegrid">${ueNames().map(u=>{const L=all.filter(A=>ueOf(A)===u),s=statsFor(L),ys=[...new Set(L.map(yearOf))];return`<button class="uetile" type="button" data-ue-go="${esc(u)}"><span class="n">${esc(u)}</span><span class="v"><span>${pl(L.length,"annale")} · ${ys.slice(0,3).join(", ")}${ys.length>3?"…":""}</span><b>${f20(s.avg)}</b></span><div class="bar"><i style="width:${s.n?s.done/s.n*100:0}%"></i></div><span class="v"><span>${s.done} / ${s.n} questions</span></span></button>`}).join("")}</div></section>
    <section class="panel"><h3>Dernières séries</h3>${ser.length?`<div class="tw"><table class="t"><thead><tr><th>Date</th><th>Série</th><th class="n">Questions</th><th class="n">Note</th></tr></thead><tbody>${ser.map(x=>`<tr><td>${dWk.format(new Date(x.at))}</td><td>${esc(x.title)}${x.mode==="exam"?' <span class="chip">Examen</span>':""}</td><td class="n">${x.n}</td><td class="n">${f20(x.n?x.pts/x.n*20:0)}</td></tr>`).join("")}</tbody></table></div>`:'<p style="margin:0;color:var(--muted)">Ta première série terminée apparaîtra ici.</p>'}</section>
   </div>`;
-  wire(v);
+  wire(v);wireInstall(v);
   if($("#resume"))$("#resume").onclick=()=>{if(!play&&sv){play={...sv};delete play.kind}go("play")};
   $("#qRand").onclick=()=>{let us=[];all.forEach(A=>us.push(...unitsOf(A)));us=shuffle(us);if(S.settings.nDos)us=us.slice(0,S.settings.nDos);startSeries(us.flat(),"Série au hasard","train")};
   $("#qErr").onclick=()=>startSeries(errorsFor(all).map(r=>({a:r.a,c:r.c,q:r.q})),"Mes erreurs","train");
@@ -227,7 +215,7 @@ function vAccueil(v){
 /* ---------- Annales ---------- */
 function cardHTML(A){
   const s=statsFor([A]),pct=A.nq?s.done/A.nq*100:0,nd=A.data.cases.filter(c=>!c.qi).length,nqi=A.data.cases.filter(c=>c.qi).reduce((x,c)=>x+c.qs.length,0);
-  return`<article class="card"><div class="tag">${esc(A.exam||"Annale")}${A.builtin?"":` · <span style="color:var(--muted)">ajoutée</span>`}</div>
+  return`<article class="card"><div class="tag">${esc(A.exam||"Annale")}</div>
    <h3>${esc(sessionLabel(dateOf(A))||A.session||A.name)}</h3><div class="meta">${[nd?pl(nd,"dossier"):"",nqi?pl(nqi,"question isolée","questions isolées"):""].filter(Boolean).join(" · ")} · ${A.nq} questions</div>
    <div class="bar"><i style="width:${pct}%"></i></div>
    <div class="note"><span class="meta">${s.done} / ${A.nq} faites</span><b>${f20(s.avg)}<small> / 20</small></b></div>
@@ -239,14 +227,14 @@ function vAnnales(v){
   const q=norm(V.annQ);
   const list=all.filter(A=>(!V.annUE||ueOf(A)===V.annUE)&&(!q||norm(titleOf(A)+" "+A.session+" "+A.ue+" "+A.name).includes(q)));
   const groups=[...new Set(list.map(ueOf))];
-  v.innerHTML=`<div class="page"><div class="head"><div><h2>Annales</h2><p>${pl(all.length,"annale")} · ${all.reduce((s,A)=>s+A.nq,0)} questions · classées par UE puis par année</p></div><span style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" type="button" id="locImp">Importer mes PDF</button><button class="btn red" type="button" data-add>+ Ajouter un PDF</button></span></div>
-   ${S.builtinOK===false?`<div class="warn" style="margin-bottom:16px">Ton compte n'a pas accès aux fichiers intégrés à Swag. Les annales restent classées ici : touche « Importer mes PDF » et sélectionne tes corrigés, Swag les reconnaît et les relie à la bonne annale (${pl(S.locCount||0,"annale disponible","annales disponibles")} sur cet appareil).</div>`:""}
+  v.innerHTML=`<div class="page"><div class="head"><div><h2>Annales</h2><p>${pl(all.length,"annale")} · ${all.reduce((s,A)=>s+A.nq,0)} questions · classées par UE puis par année</p></div><span style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn red" type="button" data-add>Importer des PDF</button></span></div>
+   ${S.pending.size?`<div class="resume" style="background:var(--raise)"><div>${pl(S.pending.size,"annale de ta sauvegarde attend","annales de ta sauvegarde attendent")} son PDF : réimporte les mêmes fichiers, Swag les reconnaît et y rattache ta progression.</div></div>`:""}
    ${all.length?`<div class="filt"><div class="seg wrap" role="group" aria-label="UE"><button type="button" data-u="" aria-pressed="${!V.annUE}">Toutes</button>${ues.map(u=>`<button type="button" data-u="${esc(u)}" aria-pressed="${V.annUE===u}">${esc(u)}</button>`).join("")}</div>
    <input type="search" id="annQ" placeholder="Chercher (UE, année, MM2…)" value="${esc(V.annQ)}" aria-label="Chercher une annale"></div>
    ${list.length?groups.map(u=>{const L=list.filter(A=>ueOf(A)===u),ys=[...new Set(L.map(yearOf))];
      return`<section class="uesec"><div class="uehead"><h3>${esc(u)}</h3><span>${pl(L.length,"annale")} · ${L.reduce((s,A)=>s+A.nq,0)} questions</span></div>
      ${ys.map(y=>`<div class="yearhead">${esc(y)}</div><div class="cards">${L.filter(A=>yearOf(A)===y).map(cardHTML).join("")}</div>`).join("")}</section>`}).join(""):'<p style="color:var(--muted)">Aucune annale ne correspond.</p>'}`:emptyHTML()}</div>`;
-  wire(v);const li=v.querySelector("#locImp");if(li)li.onclick=()=>openLocalImport(null);
+  wire(v);
   v.querySelectorAll("[data-u]").forEach(b=>b.onclick=()=>{V.annUE=b.dataset.u;render()});
   const inp=$("#annQ");if(inp)inp.oninput=()=>{V.annQ=inp.value;clearTimeout(inp._t);inp._t=setTimeout(()=>{render();const n=$("#annQ");n.focus();n.setSelectionRange(n.value.length,n.value.length)},300)};
 }
@@ -292,7 +280,7 @@ async function cropEl(A,seg,overlays){
   try{const {cv:src,s}=await pageCanvas(A,seg.p);
     const cv=document.createElement("canvas");cv.width=Math.round(cw*s);cv.height=Math.max(1,Math.round(ch*s));
     cv.getContext("2d").drawImage(src,x0*s,seg.y0*s,cw*s,ch*s,0,0,cv.width,cv.height);wrap.prepend(cv);wrap.classList.remove("loading");
-  }catch(e){wrap.classList.remove("loading");wrap.querySelectorAll(".opt,.mask").forEach(x=>x.remove());wrap.style.aspectRatio="";wrap.insertAdjacentHTML("afterbegin",`<p style="padding:16px;margin:0;color:#666">Le PDF de cette annale n'a pas pu être chargé.<br><small style="word-break:break-all">${esc(lastFetchErr||String(e&&e.message||e))}</small></p>`)}
+  }catch(e){wrap.classList.remove("loading");wrap.querySelectorAll(".opt,.mask").forEach(x=>x.remove());wrap.style.aspectRatio="";wrap.insertAdjacentHTML("afterbegin",`<p style="padding:16px;margin:0;color:#666">Le PDF de cette annale n'a pas pu être chargé.<br><small style="word-break:break-all">${esc(String(e&&e.message||e))}</small></p>`)}
   return wrap;
 }
 function makeOverlays(Q,sel,interactive){
@@ -312,52 +300,6 @@ function resultHTML(Q,r,txt,showOverride){
 }
 const hasOfficial=Q=>(Q.hide||[]).some(h=>h.kind==="just"||h.kind==="comment");
 
-/* ---------- explication par Claude ---------- */
-const fmtExpl=t=>esc(t).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>");
-function explBlock(A,c,q){
-  const key="e_"+A.id+"_"+c+"_"+q,box=document.createElement("div");
-  const ex=S.expl.get(key);
-  if(ex){box.className="expl";box.innerHTML=`<div class="eh">Explication de Claude</div><div class="tx">${fmtExpl(ex.text)}</div>`;return box}
-  if(S.settings.expl==="off"||!S.sample)return box;
-  box.innerHTML=`<button class="btn small" type="button">Expliquer avec Claude</button>`;
-  box.querySelector("button").onclick=()=>runExpl(A,c,q,box);
-  return box;
-}
-async function cropBlob(A,seg){const el=await cropEl(A,seg,[]);const cv=el.querySelector("canvas");if(!cv)return null;
-  let c2=cv;if(cv.width>1400){c2=document.createElement("canvas");const k=1400/cv.width;c2.width=1400;c2.height=Math.round(cv.height*k);c2.getContext("2d").drawImage(cv,0,0,c2.width,c2.height)}
-  return new Promise(r=>c2.toBlob(b=>r(b),"image/png"))}
-async function runExpl(A,c,q,box){
-  await ensureData(A);const key="e_"+A.id+"_"+c+"_"+q,C=A.data.cases[c],Q=C.qs[q],R=S.results.get(qKey(A.id,c,q));
-  box.className="expl";box.innerHTML=`<div class="eh">Explication de Claude</div><div class="tx">Claude lit la question…</div>`;
-  const tx=box.querySelector(".tx");
-  try{
-    const en=C.enonce.length?await segText(A,C.enonce):"",qt=await segText(A,Q.segs);
-    const good=Q.qroc?Q.qroc.ans.join(" ; "):Q.type==="TCS"?Q.opts.map(o=>o.L+" : "+(o.ex||0)+" experts").join(", "):Q.opts.filter(o=>o.v).map(o=>o.L).join(", ")||"aucune";
-    const mine=Q.qroc?(R?R.txt:""):(R?R.sel.map(i=>Q.opts[i]&&Q.opts[i].L).join(", "):"")||"rien";
-    const prompt=`Tu corriges une question d'annale de médecine (format EDN, ${Q.type}) pour un étudiant de 5e année.
-Contexte du dossier : ${en.slice(0,2500)||"(question isolée)"}
-Question, propositions et éventuels commentaires du corrigé officiel : ${qt}
-Corrigé officiel : ${good}
-Réponse de l'étudiant : ${mine}
-
-Rédige une correction claire et concise en français, 110 mots maximum, en texte simple :
-- une ou deux phrases qui disent ce qui permet de trancher ;
-- puis une ligne par proposition où l'étudiant s'est trompé, commençant par sa lettre, qui dit ce qui était faux ou ce qui a été échangé et donne la bonne information.
-Pas de titre, pas de récitation de cours, pas de longs paragraphes. Mets en gras (**…**) le seul élément clé à retenir. Si le corrigé officiel te semble discutable, dis-le en une phrase.`;
-    const opts={onText:({text})=>{tx.innerHTML=fmtExpl(text)}};
-    if(S.imgs){const b=await cropBlob(A,Q.segs[0]);if(b)opts.images=[b]}
-    const r=await S.sample(prompt,opts);
-    tx.innerHTML=fmtExpl(r.text);
-    const v={kind:"expl",text:r.text,at:Date.now()};S.expl.set(key,v);putDoc(key,v).catch(()=>{});
-  }catch(e){
-    const code=e&&e.code;
-    if(code==="not_granted"){box.className="";box.innerHTML="";S.sample=null;toast("Les explications ne sont pas autorisées sur cette page.")}
-    else if(code==="images_unavailable"){S.imgs=false;runExpl(A,c,q,box)}
-    else{box.className="";box.innerHTML=`<button class="btn small" type="button">Réessayer l'explication</button>`;box.querySelector("button").onclick=()=>runExpl(A,c,q,box);
-      toast(code==="rate_limited"?"Trop de demandes : réessaie dans un instant.":"L'explication n'a pas pu être rédigée.")}
-  }
-}
-
 /* ---------- série ---------- */
 let chronoId=0;
 function stopChrono(){if(chronoId)clearInterval(chronoId);chronoId=0}
@@ -376,7 +318,6 @@ function qtableHTML(){
 async function showQ(){
   const it=play.items[play.i],A=S.annales.get(it.a);
   if(!A||!qOf(it.a,it.c,it.q)){play.items.splice(play.i,1);play.ans.splice(play.i,1);if(!play.items.length){play=null;clearPlay();go("accueil");return}play.i=Math.min(play.i,play.items.length-1);return showQ()}
-  if(!A.loaded){$("#view").innerHTML=`<div class="page"><div class="head"><div><h2>Chargement de l'annale…</h2></div></div></div>`;const pid0=play.id,i0=play.i;try{await ensureData(A)}catch(e){showLoadError(A,e);return}if(!play||play.id!==pid0||play.i!==i0||V.tab!=="play")return}
   const C=A.data.cases[it.c],Q=C.qs[it.q],prev=play.items[play.i-1],exam=play.mode==="exam";
   const newCase=!prev||prev.a!==it.a||prev.c!==it.c;
   const a=play.ans[play.i]||(play.ans[play.i]={sel:[],txt:"",done:false});
@@ -391,7 +332,7 @@ async function showQ(){
    ${C.enonce.length?`<details class="enonce" ${newCase?"open":""}><summary>Énoncé du dossier</summary><div class="crops" id="en"></div></details>`:""}
    <div class="crops" id="qc"></div>
    ${Q.qroc?`<div class="qroc"><input type="text" id="qin" placeholder="Ta réponse" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Ta réponse" value="${esc(a.txt||"")}"></div>`:""}
-   <div id="res"></div><div id="ex"></div>
+   <div id="res"></div>
    <div class="kbd">Clavier : lettres pour cocher, Entrée pour valider, flèches ← → pour changer de question.</div>
   </div><aside class="qtable side">${exam?`<div class="chrono big" id="chrono2"></div>`:`<div class="qt-score">Série : <b>${fr(pts,2)}</b> / ${doneN}</div>`}${qtableHTML()}</aside></div>`;
   const act=document.createElement("div");act.className="act gut";
@@ -421,7 +362,6 @@ async function showQ(){
     const res=a.ovr?{s:1,d:"Comptée juste par toi"}:scoreQ(Q,sel,a.txt);
     $("#res").innerHTML=resultHTML(Q,res,input?a.txt:null,true)+(hasOfficial(Q)?`<p class="offi">Les commentaires du corrigé officiel sont affichés dans la question.</p>`:"");
     const o=$("[data-ovr]");if(o)o.onclick=()=>{a.s=1;a.ovr=1;saveResult(it.a,it.c,it.q,1,sel,a.txt);savePlay();showQ()};
-    $("#ex").innerHTML="";if(res.s<1)$("#ex").appendChild(explBlock(A,it.c,it.q));
     go.textContent=play.i+1<play.items.length?"Suivante →":"Voir le bilan"};
   if(state.done)showDone();
   const validate=()=>{a.sel=[...sel];a.txt=input?input.value:"";const r=scoreQ(Q,sel,a.txt);a.s=r.s;a.done=true;state.done=true;
@@ -442,7 +382,7 @@ function jump(i){if(!play||i<0||i>=play.items.length)return;play.i=i;savePlay();
 document.addEventListener("keydown",e=>{if(V.tab==="play"&&play&&play.key&&!document.querySelector(".modal"))play.key(e)});
 async function finish(){
   stopChrono();const p=play;play=null;clearPlay();document.querySelector(".act")?.remove();
-  if(p.mode==="exam"){try{await Promise.all([...new Set(p.items.map(it=>it.a))].map(a=>ensureData(S.annales.get(a))))}catch(e){}
+  if(p.mode==="exam"){
     p.items.forEach((it,i)=>{const a=p.ans[i]||{sel:[],txt:""},Q=qOf(it.a,it.c,it.q);if(!Q)return;const r=scoreQ(Q,new Set(a.sel||[]),a.txt||"");a.s=r.s;a.done=true;p.ans[i]=a;saveResult(it.a,it.c,it.q,r.s,new Set(a.sel||[]),a.txt||"")});
   }
   const idx=p.items.map((_,i)=>i).filter(i=>p.ans[i]&&p.ans[i].done);
@@ -467,11 +407,10 @@ function vBilan(v){
   </div>`;
   $("#redo").onclick=()=>startSeries(miss,"Erreurs · "+p.title,"train");$("#toCarnet").onclick=()=>go("carnet");$("#back").onclick=()=>go("accueil");
   v.querySelectorAll("details.rev").forEach(d=>d.addEventListener("toggle",async()=>{if(!d.open||d._done)return;d._done=true;
-    const i=+d.dataset.i,it=p.items[i],A=S.annales.get(it.a);await ensureData(A);const Q=qOf(it.a,it.c,it.q);if(!Q)return;const ans=p.ans[i];
+    const i=+d.dataset.i,it=p.items[i],A=S.annales.get(it.a);const Q=qOf(it.a,it.c,it.q);if(!Q)return;const ans=p.ans[i];
     const body=d.querySelector(".body"),box=document.createElement("div");box.className="crops done";body.appendChild(box);
     await cropsInto(box,A,Q.segs,makeOverlays(Q,new Set(ans.sel||[]),false));
-    body.insertAdjacentHTML("beforeend",resultHTML(Q,{s:ans.s,d:ans.ovr?"Comptée juste par toi":scoreQ(Q,new Set(ans.sel||[]),ans.txt||"").d},Q.qroc?ans.txt||"":null,false));
-    if(ans.s<1)body.appendChild(explBlock(A,it.c,it.q));}));
+    body.insertAdjacentHTML("beforeend",resultHTML(Q,{s:ans.s,d:ans.ovr?"Comptée juste par toi":scoreQ(Q,new Set(ans.sel||[]),ans.txt||"").d},Q.qroc?ans.txt||"":null,false));}));
 }
 
 /* ---------- Carnet d'erreurs ---------- */
@@ -481,7 +420,7 @@ function vCarnet(v){
   let list=resOf(all).filter(r=>r.err&&r.err[0]>0&&(V.errOnly?r.last<1:true)&&(!V.errUE||ueOf(S.annales.get(r.a))===V.errUE)&&(lim<0||r.err[1]>=lim));
   list.sort((x,y)=>y.err[1]-x.err[1]||y.at-x.at);
   const segB=(k,opts,val)=>`<div class="seg wrap" role="group">${opts.map(([x,t])=>`<button type="button" data-${k}="${esc(x)}" aria-pressed="${String(val)===String(x)}">${t}</button>`).join("")}</div>`;
-  v.innerHTML=`<div class="page" style="max-width:960px"><div class="head"><div><h2>Carnet d'erreurs</h2><p>Chaque question ratée, avec la capture de l'annale, ta réponse, la correction officielle et l'explication.</p></div>
+  v.innerHTML=`<div class="page" style="max-width:960px"><div class="head"><div><h2>Carnet d'erreurs</h2><p>Chaque question ratée, avec la capture de l'annale, ta réponse et la correction officielle.</p></div>
    ${list.length?`<button class="btn red" type="button" id="redoAll">Refaire ces questions (${list.length})</button>`:""}</div>
    <section class="panel"><div class="row2"><span class="lbl">UE</span>${segB("eu",[["","Toutes"],...ues.map(u=>[u,u])],V.errUE)}</div>
     <div class="row2"><span class="lbl">Période</span>${segB("ep",[["7","7 jours"],["30","30 jours"],["tout","Tout"]],V.errPer)}</div>
@@ -499,20 +438,18 @@ function vCarnet(v){
     el.innerHTML=`<div class="hd"><span class="chip red">${esc(ueOf(A))}</span><span class="chip">${esc(titleOf(A))}</span><span class="chip">${esc(caseLabel(A,r.c))} · Q${r.q+1}</span><span class="chip">${Q.type}</span><span class="chip" style="color:var(--${r.last>=1?"ok":"ko"})">Dernière note ${fr(r.last,2)}</span></div>
      <div class="mine">Ratée ${r.err[0]} fois, dernière fois le ${dShort.format(dayDate(r.err[1]))}${r.last>=1?" · réussie depuis":""}</div>
      ${A.data.cases[r.c].enonce.length?`<details class="mini"><summary>Voir l'énoncé du dossier</summary><div class="crops" data-en></div></details>`:""}
-     <div class="crops done" data-q><div class="crop loading" style="--cw:500;aspect-ratio:3/1"></div></div><div data-res></div><div data-ex></div>
+     <div class="crops done" data-q><div class="crop loading" style="--cw:500;aspect-ratio:3/1"></div></div><div data-res></div>
      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" type="button" data-one>Refaire cette question</button></div>`;
     el.querySelector("[data-one]").onclick=()=>startSeries([{a:r.a,c:r.c,q:r.q}],"Carnet · "+titleOf(A),"train");
-    const det=el.querySelector("details.mini");if(det)det.addEventListener("toggle",async()=>{if(!det.open||det._d)return;det._d=true;await ensureData(A);await cropsInto(det.querySelector("[data-en]"),A,A.data.cases[r.c].enonce,[])});
+    const det=el.querySelector("details.mini");if(det)det.addEventListener("toggle",async()=>{if(!det.open||det._d)return;det._d=true;await cropsInto(det.querySelector("[data-en]"),A,A.data.cases[r.c].enonce,[])});
     box.appendChild(el);io.observe(el)});
   if(list.length>V.errShown){const b=document.createElement("button");b.className="btn more";b.type="button";b.textContent=`Afficher plus (${list.length-V.errShown} restantes)`;b.onclick=()=>{V.errShown+=12;render()};box.appendChild(b)}
 }
 async function fillErr(el){
-  try{await ensureData(S.annales.get(el._r.a))}catch(e){el.querySelector("[data-q]").innerHTML='<p style="padding:12px;color:var(--muted)">Annale non chargée.</p>';return}
   const r=el._r,A=S.annales.get(r.a),Q=qOf(r.a,r.c,r.q),sel=new Set(r.sel||[]);
   const qb=el.querySelector("[data-q]");qb.innerHTML="";
   await cropsInto(qb,A,Q.segs,makeOverlays(Q,sel,false));
-  el.querySelector("[data-res]").innerHTML=resultHTML(Q,{s:r.last,d:scoreQ(Q,sel,r.txt||"").d},Q.qroc?(r.txt||""):null,false);
-  el.querySelector("[data-ex]").appendChild(explBlock(A,r.c,r.q));
+  el.querySelector("[data-res]").innerHTML=resultHTML(Q,{s:r.last,d:scoreQ(Q,sel,r.txt||"").d},Q.qroc?(r.txt||""):null,false)+(hasOfficial(Q)?`<p class="offi">La correction officielle (justifications, commentaire) est affichée dans la capture.</p>`:"");
 }
 
 /* ---------- Statistiques ---------- */
@@ -546,84 +483,167 @@ function vStats(v){
 
 /* ---------- Réglages ---------- */
 function vReglages(v){
-  const st=S.settings,th=curTheme(),hidden=new Set(st.hidden||[]);
+  const st=S.settings,th=curTheme();
   const sel=(id,opts,val)=>`<select id="${id}">${opts.map(([k,t])=>`<option value="${k}" ${String(val)===String(k)?"selected":""}>${t}</option>`).join("")}</select>`;
-  const store={remote:"Sauvegardé sur ton compte Claude : tu retrouves ta progression sur tous tes appareils.",local:"Sauvegardé dans ce navigateur seulement : ta progression ne suit pas sur un autre appareil.",none:"Aucune sauvegarde possible ici : ta progression sera perdue en quittant la page."}[S.mode];
-  const cat=CATALOG.slice().sort((a,b)=>a.ue.localeCompare(b.ue,"fr")||b.date.localeCompare(a.date));
+  const store={local:"Tout est enregistré dans ce navigateur, sur cet appareil : tes PDF, tes réponses, tes séries et tes réglages. Rien n'est envoyé à un serveur, et ta progression ne suit pas sur un autre appareil : utilise la sauvegarde ci-dessous.",none:"Ce navigateur ne permet pas d'enregistrer (navigation privée ?) : ta progression sera perdue en quittant la page."}[S.mode];
+  const pers=S.persist===true?"Le navigateur s'est engagé à ne pas effacer ces données.":S.persist===false?"Le navigateur peut effacer ces données s'il manque de place : sauvegarde ta progression de temps en temps.":"";
+  const pend=[...S.pending.values()];
   v.innerHTML=`<div class="page" style="max-width:860px"><div class="head"><div><h2>Réglages</h2></div></div>
+   ${installHTML(true)}
    <section class="panel"><h3>Apparence</h3><div class="seg" role="group" aria-label="Thème">${[["auto","Auto"],["light","Clair"],["dark","Sombre"]].map(([k,t])=>`<button type="button" data-th="${k}" aria-pressed="${th===k}">${t}</button>`).join("")}</div></section>
    <section class="panel"><h3>Barème</h3><p style="margin:0;color:var(--muted)">QRM : points selon le nombre de discordances (case cochée à tort ou oubliée). QRU : tout ou rien. QRP et QRPL : une proposition inacceptable cochée ou une indispensable oubliée donne 0, trop de cases cochées aussi. TCS : selon la part d'experts ayant choisi ta réponse.</p>
     <div class="set"><label class="field"><span>1 discordance</span>${sel("b1",[[.5,"0,5"],[.4,"0,4"],[.3,"0,3"],[.2,"0,2"],[0,"0"]],st.b1)}</label>
     <label class="field"><span>2 discordances</span>${sel("b2",[[.2,"0,2"],[.1,"0,1"],[0,"0"]],st.b2)}</label>
     <label class="field"><span>QRP et QRPL</span>${sel("qrpl",[["prorata","Au prorata des bonnes réponses"],["strict","Tout ou rien"]],st.qrpl)}</label></div></section>
    <section class="panel"><h3>Séries</h3><div class="set"><label class="field"><span>Dossiers par série au hasard</span>${sel("nDos",[[3,"3"],[5,"5"],[10,"10"],[0,"Tous"]],st.nDos)}</label>
-    <label class="field"><span>Temps par question en examen</span>${sel("tQ",[[60,"1 min"],[90,"1 min 30"],[120,"2 min"],[180,"3 min"]],st.tQ)}</label>
-    <label class="field"><span>Explications des erreurs</span>${sel("expl",[["demande","À la demande, avec Claude"],["off","Désactivées"]],st.expl)}<small>Claude lit la question et rédige une correction courte, une seule fois, sur ton compte Claude ; elle est ensuite gardée dans Swag.</small></label></div></section>
-   <section class="panel"><h3>Annales intégrées</h3><p style="margin:0;color:var(--muted)">Décoche celles que tu ne veux pas voir.</p>
-    <div class="picklist" style="max-height:420px">${cat.map(b=>`<label class="pick"><input type="checkbox" data-hid="${b.id}" ${hidden.has(b.id)?"":"checked"}><span>${esc(b.ue)} <small>· ${esc([b.exam,sessionLabel(b.date)].filter(Boolean).join(" · "))}</small></span><small>${b.nq} q.</small></label>`).join("")}</div></section>
-   <section class="panel"><h3>Tes données</h3><p style="margin:0">${store}</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" type="button" id="reset" style="color:var(--red)">Réinitialiser ma progression</button></div></section>
+    <label class="field"><span>Temps par question en examen</span>${sel("tQ",[[60,"1 min"],[90,"1 min 30"],[120,"2 min"],[180,"3 min"]],st.tQ)}</label></div></section>
+   <section class="panel"><h3>Tes données</h3><p style="margin:0">${store}</p>${pers?`<p style="margin:0;color:var(--muted)">${pers}</p>`:""}
+    <p style="margin:0;color:var(--muted)">La sauvegarde contient tes résultats, tes séries, tes réglages et la liste de tes annales (UE, épreuve, date), sans les PDF. Pour la restaurer sur un autre appareil, restaure le fichier puis réimporte les mêmes PDF.</p>
+    ${pend.length?`<p style="margin:0" id="pendList"><b>${pl(pend.length,"annale attend","annales attendent")} son PDF :</b> ${pend.map(x=>esc((x.ue||UE_TODO)+" · "+([x.exam,sessionLabel(x.date)].filter(Boolean).join(" ")||x.name))).join(" ; ")}</p>`:""}
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" type="button" id="bkSave">Sauvegarder ma progression</button><label class="btn" for="bkFile" id="bkLoad">Restaurer ma progression</label><input type="file" id="bkFile" accept="application/json,.json" class="vh">
+     <button class="btn" type="button" id="reset" style="color:var(--red)">Réinitialiser ma progression</button></div></section>
+   ${typeof authPanelHTML==="function"?authPanelHTML():""}
+   <section class="panel"><h3>Confidentialité</h3><p style="margin:0;color:var(--muted)">Swag est gratuit et ne contient aucune annale : tu importes tes propres corrigés, qui sont lus et gardés sur ton appareil. Le code du site est public. L'accès est réservé aux membres (adresse e-mail sur la liste), mais ce contrôle se fait dans ton navigateur : il sert à réserver le site, pas à protéger des données secrètes. Seule ton adresse e-mail sert à la connexion.</p></section>
   </div>`;
   v.querySelectorAll("[data-th]").forEach(b=>b.onclick=()=>{setTheme(b.dataset.th);render()});
   ["b1","b2","nDos","tQ"].forEach(k=>$("#"+k).onchange=e=>saveSettings({[k]:+e.target.value}));
-  $("#qrpl").onchange=e=>saveSettings({qrpl:e.target.value});$("#expl").onchange=e=>saveSettings({expl:e.target.value});
-  v.querySelectorAll("[data-hid]").forEach(b=>b.onchange=async()=>{const h=new Set(S.settings.hidden||[]);b.checked?h.delete(b.dataset.hid):h.add(b.dataset.hid);await saveSettings({hidden:[...h]});loadCatalog();nav()});
+  $("#qrpl").onchange=e=>saveSettings({qrpl:e.target.value});
+  $("#bkSave").onclick=()=>saveBackup();
+  $("#bkFile").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(f)await restoreBackup(f)};
+  if(typeof wireAuthPanel==="function")wireAuthPanel(v);
   let armed=false;$("#reset").onclick=async()=>{const b=$("#reset");if(!armed){armed=true;b.textContent="Confirmer : effacer notes, séries et carnet";b.classList.add("red");b.style.color="";return}
     b.disabled=true;b.textContent="Effacement…";try{for(const k of [...S.results.keys(),...S.series.keys()])await delDoc(k);S.results.clear();S.series.clear();toast("Progression effacée")}catch(e){toast("L'effacement n'a pas abouti.")}render()};
 }
 
+/* ---------- sauvegarde / restauration de la progression (sans les PDF) ---------- */
+const annMeta=A=>({id:A.id,hash:A.hash||"",name:A.name||"",ue:A.ue||"",exam:A.exam||"",date:A.date||"",nq:A.nq||0});
+function backupData(){
+  return{app:"swag",format:1,at:new Date().toISOString(),theme:curTheme(),settings:{...S.settings,kind:undefined},
+    annales:[...[...S.annales.values()].map(annMeta),...[...S.pending.values()].map(annMeta)],
+    results:[...S.results.values()],series:[...S.series.entries()].map(([k,v])=>({...v,key:k}))};
+}
+async function saveBackup(){
+  const d=new Date(),stamp=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  await saveFile("Swag - sauvegarde "+stamp+".json",JSON.stringify(backupData()),"application/json");
+}
+async function restoreBackup(file){
+  let B;try{B=JSON.parse(await file.text())}catch(e){toast("Ce fichier n'est pas une sauvegarde Swag.");return}
+  if(!B||B.app!=="swag"||!Array.isArray(B.results)){toast("Ce fichier n'est pas une sauvegarde Swag.");return}
+  const byHash=new Map([...S.annales.values()].filter(A=>A.hash).map(A=>[A.hash,A]));const map=new Map();let nPend=0,nRes=0,nSer=0;
+  try{
+    for(const m of B.annales||[]){if(!m||!m.id)continue;const A=m.hash&&byHash.get(m.hash);
+      if(A){map.set(m.id,A.id);if(m.ue||m.exam||m.date){Object.assign(A,{ue:m.ue||A.ue,exam:m.exam||A.exam,date:m.date||A.date,session:sessionLabel(m.date||A.date)});await putDoc(A.id,A)}}
+      else if(!S.annales.has(m.id)){const k="p_"+m.id,v={kind:"pending",...annMeta(m)};S.pending.set(k,v);await putDoc(k,v);nPend++}}
+    for(const r of B.results){if(!r||r.kind!=="result")continue;const a=map.get(r.a)||r.a,k=qKey(a,r.c,r.q),o=S.results.get(k);
+      if(o&&o.at>=r.at)continue;const v={...r,a};S.results.set(k,v);await putDoc(k,v);nRes++}
+    for(const x of B.series||[]){if(!x||x.kind!=="serie")continue;const {key,...v}=x;const k=key||"s_"+rid();if(S.series.has(k))continue;S.series.set(k,v);await putDoc(k,v);nSer++}
+    if(B.settings){const {kind,...st}=B.settings;await saveSettings({...DEF,...st})}
+    if(B.theme)setTheme(B.theme);
+  }catch(e){toast(quotaErr(e)?"Stockage plein : la restauration n'est pas complète.":"La restauration n'a pas abouti.");render();return}
+  render();toast(`Restauré : ${pl(nRes,"résultat")}, ${pl(nSer,"série")}`+(nPend?` · ${pl(nPend,"annale")} à réimporter (mêmes PDF)`:""));
+}
+
 /* ---------- ajout / modification ---------- */
-function modal(html){const m=document.createElement("div");m.className="modal";m.innerHTML=`<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
-  m.addEventListener("click",e=>{if(e.target===m)m.remove()});$("#layer").appendChild(m);return m}
+function modal(html,o){o=o||{};const m=document.createElement("div");m.className="modal";m.innerHTML=`<div class="sheet${o.wide?" wide":""}" role="dialog" aria-modal="true">${html}</div>`;
+  m.addEventListener("click",e=>{if(e.target===m&&!(o.locked&&o.locked()))m.remove()});$("#layer").appendChild(m);return m}
 const ueDatalist=()=>`<datalist id="uel">${UE_LIST.map(u=>`<option value="${esc(u)}">`).join("")}</datalist>`;
-function openAdd(){
-  if(S.mode==="none"){toast("L'ajout de PDF n'est pas possible dans cette vue.");return}
-  const m=modal(`<h3>Ajouter une annale</h3>
-   <label class="drop" id="drop" for="file"><b>Choisir un corrigé PDF</b><span>ou le glisser ici</span></label><input type="file" id="file" accept="application/pdf">
-   <div id="afterPick" hidden style="display:grid;gap:12px"><div class="found" id="found"></div>
-    <label>UE<input type="text" id="fUE" list="uel" autocomplete="off" placeholder="Cardiologie, Pédiatrie…"></label>
-    <label>Épreuve<input type="text" id="fExam" autocomplete="off" placeholder="MM1, MM2, EDN blanc…"></label>
-    <label>Date de l'épreuve<input type="month" id="fDate"></label>${ueDatalist()}</div>
-   <div class="warn" id="warn" hidden></div>
-   <div class="row"><button class="btn" type="button" id="cancel">Annuler</button><button class="btn red" type="button" id="save" disabled>Enregistrer</button></div>`);
-  let parsed=null,bytes=null,hash="",fname="";
-  const pick=async f=>{if(!f)return;$("#warn").hidden=true;$("#drop").innerHTML="<b>Lecture du PDF…</b>";fname=f.name;
-    let rep=null;try{bytes=new Uint8Array(await f.arrayBuffer());hash=await sha1(bytes);$("#drop").innerHTML="<b>Lecture et contrôle du PDF…</b>";rep=await checkBytes(bytes,{vierge:true,autodrop:true});parsed=rep.A}catch(e){parsed=null}
-    if(parsed&&rep&&rep.errs.length&&parsed.nq){$("#drop").innerHTML=`<b>${esc(f.name)}</b><span>Changer de fichier</span>`;$("#afterPick").hidden=true;$("#save").disabled=true;$("#warn").hidden=false;
-      $("#warn").textContent=`Ce PDF n'a pas passé le contrôle : ${pl(rep.errs.length,"élément")} du corrigé resteraient visibles (format non reconnu). Il n'est pas ajouté, pour ne rien dévoiler.`;return}
-    $("#drop").innerHTML=`<b>${esc(f.name)}</b><span>Changer de fichier</span>`;
-    const dup=hash&&[...S.annales.values()].find(A=>A.hash===hash);
-    if(dup){$("#afterPick").hidden=true;$("#save").disabled=true;$("#warn").hidden=false;$("#warn").textContent=`Ce PDF est déjà dans Swag : ${ueOf(dup)} · ${titleOf(dup)}.`;return}
-    if(!parsed||!parsed.nq){$("#afterPick").hidden=true;$("#save").disabled=true;$("#warn").hidden=false;
-      $("#warn").textContent=parsed?"Aucune réponse corrigée trouvée : il faut un corrigé avec les mentions Valide / Faux ou la colonne « Réponse attendue ».":"Ce fichier ne s'ouvre pas comme un PDF.";return}
-    if(bytes.length>20*1024*1024&&S.mode==="remote"){$("#warn").hidden=false;$("#warn").textContent="Le PDF dépasse 20 Mo, il ne peut pas être sauvegardé.";return}
-    const n=cleanName(f.name);$("#fUE").value=guessUE(n);$("#fExam").value=guessExam(n);$("#fDate").value=guessDate(n).replace(/-00$/,"-01");
-    const drop=parsed.dropped.filter(d=>d.type!=="dossier");
-    $("#found").innerHTML=`${parsed.pages.length} pages · ${pl(parsed.cases.length,"dossier")} · <b>${parsed.nq} questions</b> détectées${drop.length?`<br><span style="color:var(--muted)">${pl(drop.length,"question")} non reprise${drop.length>1?"s":""} (questions à zone sur image)</span>`:""}`;
-    $("#afterPick").hidden=false;$("#save").disabled=false;};
-  $("#file").onchange=e=>pick(e.target.files[0]);
-  const d=$("#drop");d.ondragover=e=>{e.preventDefault();d.classList.add("over")};d.ondragleave=()=>d.classList.remove("over");
-  d.ondrop=e=>{e.preventDefault();d.classList.remove("over");pick(e.dataTransfer.files[0])};
-  $("#cancel").onclick=()=>m.remove();
-  $("#save").onclick=async()=>{$("#save").disabled=true;$("#save").textContent="Enregistrement…";
-    const date=$("#fDate").value||"";
-    const A={id:rid(),kind:"annale",name:cleanName(fname),ue:$("#fUE").value.trim(),exam:$("#fExam").value.trim(),date,session:sessionLabel(date),createdAt:Date.now(),nq:parsed.nq,data:parsed,hash};
-    try{await saveAnnale(A,bytes);m.remove();V.annUE=ueOf(A);V.tab="annales";render();toast("Annale ajoutée")}
-    catch(e){$("#save").disabled=false;$("#save").textContent="Enregistrer";$("#warn").hidden=false;$("#warn").textContent=e&&e.code==="quota_exceeded"?"Stockage plein : supprime une annale d'abord.":"L'enregistrement a échoué. Réessaie dans un instant."}};
+/* ---------- import en masse ---------- */
+async function firstPageText(bytes){ // titre du document + lignes en gros caractères (ou « Référence ») du haut de la 1re page
+  let task=null;try{task=PDFJS.getDocument({data:bytes.slice()});const doc=await task.promise;const out=[];
+    try{const md=await doc.getMetadata();if(md&&md.info&&md.info.Title)out.push(md.info.Title)}catch(e){}
+    const page=await doc.getPage(1),vp=page.getViewport({scale:1});const tc=await page.getTextContent();
+    const its=tc.items.filter(it=>it.str&&it.str.trim()).map(it=>{const t=PDFJS.Util.transform(vp.transform,it.transform);return{s:it.str.trim(),y:t[5],h:it.height||Math.hypot(t[2],t[3])}}).filter(it=>it.y<vp.height*.5).sort((a,b)=>a.y-b.y);
+    its.filter(it=>it.h>=12.5||/^Référence/i.test(it.s)).forEach(it=>out.push(it.s));
+    return out.join(" ").slice(0,400)}
+  catch(e){return""}finally{if(task)try{await task.destroy()}catch(e){}}
+}
+async function guessMeta(file,bytes){
+  const folder=(file.webkitRelativePath||"").split("/").slice(0,-1).join(" "),n=cleanName(file.name);
+  let ue=guessUE(n)||guessUE(folder),exam=guessExam(n,folder),date=guessDate(n,folder),src=ue?"nom":"";
+  if(!ue||!exam||!date){const t=await firstPageText(bytes);if(t){if(!ue&&(ue=guessUE(t)))src="page";if(!exam)exam=guessExam(t,"");if(!date)date=guessDate(t,"")}}
+  return{ue:ue||UE_TODO,exam,date,src:ue?src:""};
+}
+let pdfLock=Promise.resolve(); // une seule lecture de PDF à la fois (import, relecture)
+function exclusive(fn){const r=pdfLock.then(fn,fn);pdfLock=r.catch(()=>{});return r}
+async function checkClean(bytes){ // checkBytes inchangé ; on ferme ensuite les documents pdf.js qu'il a ouverts (mémoire de l'iPad)
+  const tasks=[],wrap=Object.create(PDFJS,{getDocument:{value:(...a)=>{const t=PDFJS.getDocument(...a);tasks.push(t);return t}}});
+  window.pdfjsLib=wrap;
+  try{return await checkBytes(bytes,{vierge:true,autodrop:true})}
+  finally{window.pdfjsLib=PDFJS;for(const t of tasks){try{await t.destroy()}catch(e){}}}
+}
+async function importOne(file,seen){
+  // renvoie {st:"ok"|"dup"|"ko", why, A}
+  let bytes;try{bytes=new Uint8Array(await file.arrayBuffer())}catch(e){return{st:"ko",why:"fichier illisible."}}
+  if(!/\.pdf$/i.test(file.name)&&file.type!=="application/pdf")return{st:"ko",why:"ce n'est pas un PDF."};
+  const hash=await sha1(bytes);
+  const dup=hash&&([...S.annales.values()].find(A=>A.hash===hash)||seen.get(hash));
+  if(dup)return{st:"dup",why:`déjà dans Swag : ${ueOf(dup)} · ${titleOf(dup)}.`};
+  let rep;try{rep=await checkClean(bytes)}catch(e){return{st:"ko",why:e&&e.name==="PasswordException"?"PDF protégé par un mot de passe.":"ce fichier ne s'ouvre pas comme un PDF."}}
+  const d=rep.A;
+  if(!d||!d.nq)return{st:"ko",why:"aucune question corrigée trouvée (il faut un corrigé avec Valide / Faux ou la colonne « Réponse attendue »)."};
+  if(rep.errs.length)return{st:"ko",why:`refusé pour ne rien dévoiler : ${pl(rep.errs.length,"élément")} du corrigé resterai${rep.errs.length>1?"en":""}t visible${rep.errs.length>1?"s":""} (format non reconnu).`};
+  const pk=[...S.pending.keys()].find(k=>S.pending.get(k).hash===hash),pend=pk&&S.pending.get(pk);
+  const g=pend?{ue:pend.ue||UE_TODO,exam:pend.exam,date:pend.date,src:"sauvegarde"}:await guessMeta(file,bytes);
+  const A={id:pend?pend.id:rid(),kind:"annale",name:pend&&pend.name||cleanName(file.name),ue:g.ue,exam:g.exam,date:g.date,session:sessionLabel(g.date),createdAt:Date.now(),nq:d.nq,data:d,hash,src:g.src};
+  await saveAnnale(A,bytes,false);
+  if(pk){S.pending.delete(pk);delDoc(pk).catch(()=>{})}
+  seen.set(hash,A);
+  const nd=(rep.droppedQ||[]).length,nz=d.dropped.filter(x=>x.type!=="dossier"&&x.type!=="écartée").length;
+  return{st:"ok",A,note:[pl(d.nq,"question"),nd?pl(nd,"question écartée","questions écartées")+" (lecture douteuse, masquée)":"",nz?pl(nz,"question non reprise","questions non reprises")+" (zone sur image ou annulée)":""].filter(Boolean).join(" · ")};
+}
+function openImport(){
+  if(S.mode==="none"){toast("Ce navigateur ne permet pas d'enregistrer les PDF (navigation privée ?).");return}
+  const dirOK="webkitdirectory" in document.createElement("input")&&!matchMedia("(pointer:coarse)").matches;
+  const m=modal(`<h3>Importer des corrigés</h3>
+   <p style="margin:0;color:var(--muted)">Choisis un ou plusieurs corrigés PDF (UNESS avec Valide / Faux, ou avec la colonne « Réponse attendue »). Chaque fichier est lu et contrôlé sur ton appareil : s'il reste la moindre réponse visible, il est refusé. Rien n'est envoyé.</p>
+   <label class="drop" id="imDrop" for="imFile"><b>Choisir des PDF</b><span>ou les glisser ici</span></label><input type="file" id="imFile" class="vh" accept="application/pdf,.pdf" multiple>
+   ${dirOK?`<div><label class="btn small ghost" for="imDir">Choisir un dossier entier</label><input type="file" id="imDir" class="vh" webkitdirectory multiple></div>`:""}
+   <div id="imProg" hidden><div class="bar"><i style="width:0%"></i></div><p class="meta" id="imNow" style="margin:6px 0 0"></p></div>
+   <div id="imSum" class="found" hidden></div><div id="imRec" class="imrec"></div>${ueDatalist()}
+   <div class="row"><button class="btn" type="button" id="imStop" hidden>Arrêter après ce fichier</button><button class="btn red" type="button" id="imClose">Fermer</button></div>`,{wide:true,locked:()=>busy});
+  let busy=false,stop=false;const rows=[];
+  const recRow=(f,r)=>{const el=document.createElement("div");el.className="imrow "+r.st;
+    if(r.st!=="ok"){el.innerHTML=`<div class="imn"><span class="ims">${r.st==="dup"?"=":"✗"}</span><b>${esc(f.name)}</b></div><div class="imw">${esc(r.why)}</div>`;return el}
+    const A=r.A;
+    el.innerHTML=`<div class="imn"><span class="ims">✓</span><b>${esc(f.name)}</b><small>${esc(r.note)}${A.src==="page"?" · UE devinée d'après la 1re page":A.src==="sauvegarde"?" · retrouvée dans ta sauvegarde":A.ue===UE_TODO?" · UE non reconnue : à classer":""}</small></div>
+     <div class="imf"><label>UE<input type="text" list="uel" data-k="ue" value="${esc(A.ue)}" autocomplete="off"></label><label>Épreuve<input type="text" data-k="exam" value="${esc(A.exam||"")}" placeholder="MM1, MM2…" autocomplete="off"></label><label>Date<input type="month" data-k="date" value="${esc((A.date||"").replace(/-00$/,"-01"))}"></label></div>`;
+    el.querySelectorAll("[data-k]").forEach(inp=>inp.onchange=async()=>{const k=inp.dataset.k;let v=inp.value.trim();if(k==="ue"&&!v)v=UE_TODO;A[k]=v;if(k==="date")A.session=sessionLabel(v);
+      try{await putDoc(A.id,A);inp.classList.add("saved");setTimeout(()=>inp.classList.remove("saved"),900)}catch(e){toast("La modification n'a pas pu être enregistrée.")}});
+    return el};
+  const run=async list=>{
+    const F=[...(list||[])].filter(f=>/\.pdf$/i.test(f.name)||f.type==="application/pdf");if(busy||!F.length){if(list&&list.length&&!F.length)toast("Aucun PDF dans cette sélection.");return}
+    busy=true;stop=false;$("#imStop").hidden=false;$("#imClose").disabled=true;$("#imProg").hidden=false;const seen=new Map();let n=0;
+    for(let i=0;i<F.length&&!stop;i++){const f=F[i];
+      $("#imNow").textContent=`Lecture et contrôle ${i+1} / ${F.length} : ${f.name}`;$("#imProg i").style.width=(i/F.length*100)+"%";
+      let r;try{r=await exclusive(()=>importOne(f,seen))}catch(e){r={st:"ko",why:quotaErr(e)?"stockage de l'appareil plein.":"lecture impossible."}}
+      rows.push(r);n++;$("#imRec").appendChild(recRow(f,r));
+      if(r.st==="ko"&&/stockage/.test(r.why)){stop=true}}
+    busy=false;$("#imStop").hidden=true;$("#imClose").disabled=false;$("#imProg i").style.width="100%";
+    const ok=rows.filter(r=>r.st==="ok").length,ko=rows.filter(r=>r.st==="ko").length,du=rows.filter(r=>r.st==="dup").length,todo=rows.filter(r=>r.st==="ok"&&r.A.ue===UE_TODO).length;
+    $("#imNow").textContent=stop&&n<F.length?`Arrêté après ${n} fichier${n>1?"s":""} sur ${F.length}.`:"Terminé.";
+    $("#imSum").hidden=false;$("#imSum").innerHTML=`<b>${pl(ok,"annale ajoutée","annales ajoutées")}</b>${ko?` · ${pl(ko,"fichier refusé","fichiers refusés")}`:""}${du?` · ${pl(du,"doublon ignoré","doublons ignorés")}`:""}${todo?`<br>${pl(todo,"annale")} dans « ${UE_TODO} » : indique l'UE ci-dessous.`:""}${ok?"<br>Vérifie l'UE, l'épreuve et la date de chaque annale : tu peux les corriger ici ou plus tard avec « Modifier ».":""}`;
+    $("#imDrop").innerHTML=`<b>Importer d'autres PDF</b><span>ou les glisser ici</span>`;nav()};
+  $("#imFile").onchange=e=>{const f=[...e.target.files];e.target.value="";run(f)};
+  if($("#imDir"))$("#imDir").onchange=e=>{const f=[...e.target.files];e.target.value="";run(f)};
+  const d=$("#imDrop");d.ondragover=e=>{e.preventDefault();d.classList.add("over")};d.ondragleave=()=>d.classList.remove("over");
+  d.ondrop=e=>{e.preventDefault();d.classList.remove("over");run(e.dataTransfer.files)};
+  $("#imStop").onclick=()=>{stop=true;$("#imStop").disabled=true;$("#imStop").textContent="Arrêt après ce fichier…"};
+  $("#imClose").onclick=()=>{if(busy)return;m.remove();if(rows.some(r=>r.st==="ok")){V.annUE="";V.annQ="";V.tab="annales"}render()};
+  return m;
 }
 function openEdit(A){
   const m=modal(`<h3>Modifier l'annale</h3>
+   <p style="margin:0;color:var(--muted);overflow-wrap:anywhere">${esc(A.name||"")}</p>
    <label>UE<input type="text" id="fUE" list="uel" value="${esc(A.ue)}" autocomplete="off"></label>
-   <label>Épreuve<input type="text" id="fExam" value="${esc(A.exam||"")}" autocomplete="off"></label>
+   <label>Épreuve<input type="text" id="fExam" value="${esc(A.exam||"")}" autocomplete="off" placeholder="MM1, MM2, EDN blanc…"></label>
    <label>Date de l'épreuve<input type="month" id="fDate" value="${esc((dateOf(A)||"").replace(/-00$/,"-01"))}"></label>${ueDatalist()}
-   <div class="row" style="justify-content:space-between"><button class="btn ghost" type="button" id="del" style="color:var(--red)">${A.builtin?"Masquer":"Supprimer"}</button>
+   <div class="row" style="justify-content:space-between"><button class="btn ghost" type="button" id="del" style="color:var(--red)">Supprimer</button>
    <span style="display:flex;gap:10px"><button class="btn" type="button" id="cancel">Annuler</button><button class="btn red" type="button" id="save">Enregistrer</button></span></div>`);
   $("#cancel").onclick=()=>m.remove();
-  $("#save").onclick=async()=>{const date=$("#fDate").value||A.date||"";const patch={ue:$("#fUE").value.trim(),exam:$("#fExam").value.trim(),date,session:sessionLabel(date)};
-    try{if(A.builtin){const ov={...(S.settings.ov||{})};ov[A.id]=patch;await saveSettings({ov});loadCatalog()}else{Object.assign(A,patch);await putDoc(A.id,A)}m.remove();render()}catch(e){toast("La modification n'a pas pu être enregistrée.")}};
+  $("#save").onclick=async()=>{const date=$("#fDate").value||A.date||"";const patch={ue:$("#fUE").value.trim()||UE_TODO,exam:$("#fExam").value.trim(),date,session:sessionLabel(date)};
+    try{Object.assign(A,patch);await putDoc(A.id,A);m.remove();render()}catch(e){toast("La modification n'a pas pu être enregistrée.")}};
   let armed=false;$("#del").onclick=async()=>{
-    if(A.builtin){const h=new Set(S.settings.hidden||[]);h.add(A.id);await saveSettings({hidden:[...h]});loadCatalog();m.remove();render();toast("Annale masquée · tu peux la réafficher dans Réglages");return}
-    if(!armed){armed=true;$("#del").textContent="Confirmer : tout supprimer";return}
+    if(!armed){armed=true;$("#del").textContent="Confirmer : supprimer l'annale et ses résultats";return}
     try{await removeAnnale(A);m.remove();render();toast("Annale supprimée")}catch(e){toast("La suppression a échoué.")}};
 }
 
@@ -664,103 +684,40 @@ async function buildBlankPdf(A,onProgress){
   return await out.save();
 }
 const fileBase=A=>(ueOf(A)+" "+titleOf(A)).replace(/[\\/:*?"<>|·]+/g," ").replace(/\s+/g," ").trim();
-async function saveFile(name,data){
-  if(!S.downloads){toast("Le téléchargement n'est pas disponible dans cette vue.");return false}
-  try{await S.downloads.save({filename:name,data:new Blob([data],{type:"application/pdf"})});toast("PDF enregistré");return true}
-  catch(e){const c=e&&e.code;toast(c==="declined"?"Téléchargement annulé.":c==="rate_limited"?"Une demande est déjà ouverte, réessaie dans un instant.":"Le téléchargement n'a pas abouti.");if(["unavailable","not_granted","capability_disabled","capability_removed"].includes(c))S.downloads=null;return false}
+const coarse=()=>matchMedia("(pointer:coarse)").matches;
+function downloadBlob(name,blob){
+  const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;a.rel="noopener";a.hidden=true;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(u),120000);toast("Fichier enregistré : "+name);return true;
+}
+function offerFile(name,blob,file){ // le partage demande un toucher récent : après une longue préparation, on le redemande
+  return new Promise(res=>{const m=modal(`<h3>Ton fichier est prêt</h3><p style="margin:0;overflow-wrap:anywhere">${esc(name)}</p>
+    <div class="row"><button class="btn" type="button" id="ofDl">Télécharger</button><button class="btn red" type="button" id="ofSh">Enregistrer ou partager…</button></div>`);
+    m.querySelector("#ofDl").onclick=()=>{m.remove();res(downloadBlob(name,blob))};
+    m.querySelector("#ofSh").onclick=async()=>{try{await navigator.share({files:[file],title:name});m.remove();res(true)}catch(e){if(e&&e.name==="AbortError")return;m.remove();res(downloadBlob(name,blob))}};
+    m.addEventListener("click",e=>{if(e.target===m)res(false)})});
+}
+async function saveFile(name,data,type){
+  type=type||"application/pdf";const blob=new Blob([data],{type});let file=null;
+  try{file=new File([blob],name,{type})}catch(e){}
+  if(file&&coarse()&&navigator.share&&navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file],title:name});return true}
+    catch(e){if(e&&e.name==="AbortError"){toast("Enregistrement annulé.");return false}return offerFile(name,blob,file)}}
+  return downloadBlob(name,blob);
 }
 async function downloadBlank(A,btn){
-  if(!S.downloads){toast("Le téléchargement n'est pas disponible dans cette vue.");return}
   const t=btn.textContent;btn.disabled=true;
-  try{await ensureData(A);const bytes=await buildBlankPdf(A,(p,n)=>{btn.textContent=`Préparation ${p}/${n}…`});btn.textContent=t;await saveFile("Sujet vierge - "+fileBase(A)+".pdf",bytes)}
+  try{const bytes=await buildBlankPdf(A,(p,n)=>{btn.textContent=`Préparation ${p}/${n}…`});btn.textContent=t;btn.disabled=false;await saveFile("Sujet vierge - "+fileBase(A)+".pdf",bytes)}
   catch(e){toast("Le sujet vierge n'a pas pu être créé.")}
   btn.disabled=false;btn.textContent=t;
 }
-async function downloadOrig(A,btn){btn.disabled=true;try{await saveFile("Corrigé - "+fileBase(A)+".pdf",await pdfBytes(A))}catch(e){toast("Le corrigé est introuvable.")}btn.disabled=false}
+async function downloadOrig(A,btn){btn.disabled=true;try{const b=await pdfBytes(A);btn.disabled=false;await saveFile("Corrigé - "+fileBase(A)+".pdf",b)}catch(e){toast("Le corrigé est introuvable sur cet appareil.")}btn.disabled=false}
 
-/* ---------- annales intégrées et mise à jour des annales importées ---------- */
-function loadCatalog(){
-  for(const [k,A] of [...S.annales])if(A.builtin)S.annales.delete(k);
-  const hidden=new Set(S.settings.hidden||[]),ov=S.settings.ov||{};
-  for(const b of CATALOG){if(hidden.has(b.id))continue;const old=S.annales.get(b.id);
-    const ph={stub:1,cases:b.sh.map(c=>({qi:!!c[0],enonce:c[1]?[null]:[],qs:c[2].map(t=>({type:t,stub:1}))})),pages:[]};
-    S.annales.set(b.id,{id:b.id,kind:"annale",builtin:1,file:b.file,blob:b.blob,bundle:b.bundle,name:b.name,ue:b.ue,exam:b.exam,date:b.date,session:sessionLabel(b.date),createdAt:0,nq:b.nq,data:ph,loaded:false,note:b.note,hash:b.hash,...(ov[b.id]||{})})}
-}
-const bundleP=new Map();const DATA_BLOB="33ebfa339b9f669570664ef60ae52fc3";let allDataP=null;
-async function ensureData(A){
-  if(!A||!A.builtin||A.loaded)return A;
-  try{const d=await itx("pdf","readonly",s=>s.get("d:"+A.id));if(d&&d.cases){A.data=d;A.loaded=true;return A}}catch(e){}
-  if(!bundleP.has(A.bundle)){const p=(DATA_BLOB?(allDataP||(allDataP=getFile("/_blob/"+DATA_BLOB,"json").catch(e=>{allDataP=null;throw e}))).then(all=>{if(!all||!all[A.bundle])throw new Error("paquet "+A.bundle+" absent");return all[A.bundle]}):getFile("data/"+A.bundle+".json","json"));p.catch(()=>bundleP.delete(A.bundle));bundleP.set(A.bundle,p)}
-  const all=await bundleP.get(A.bundle);
-  for(const [id,d] of Object.entries(all)){const X=S.annales.get(id);if(X&&!X.loaded){X.data=d;X.loaded=true}}
-  return A;
-}
-function showLoadError(A,e){
-  $("#view").innerHTML=`<div class="page" style="max-width:760px"><div class="empty"><h3>L'annale n'a pas pu être chargée</h3>
-   <p>Swag n'arrive pas à lire les fichiers de l'annale (${esc(ueOf(A))} · ${esc(titleOf(A))}). Réessaie ; si ça recommence, fais une capture de ce message.</p>
-   <p style="font-family:ui-monospace,monospace;font-size:.85rem;color:var(--muted);word-break:break-all">Détail : ${esc(String(e&&e.message||e))} · ${esc(navigator.userAgent.slice(0,90))}</p>
-   <p style="margin-top:14px">Ton compte n'a peut-être pas accès aux fichiers intégrés à Swag. Si tu as ce corrigé sur ton appareil, choisis-le : Swag le lit, le contrôle et le garde pour la suite. Tu peux en sélectionner plusieurs d'un coup, ils seront reconnus et rangés automatiquement.</p>
-   <div class="row"><button class="btn red" type="button" id="pickLoc">Choisir mes PDF</button><button class="btn" type="button" id="retryLoad">Réessayer</button><button class="btn" type="button" id="backLoad">Retour aux annales</button></div></div></div>`;
-  bundleP.delete(A.bundle);$("#pickLoc").onclick=()=>openLocalImport(A);
-  diagAccess().then(t=>{const p=document.createElement("p");p.style.cssText="font-family:ui-monospace,monospace;font-size:.8rem;color:var(--muted);word-break:break-all";p.textContent="Diagnostic : "+t;const e=$("#view .empty");if(e)e.appendChild(p)});
-  $("#retryLoad").onclick=()=>showQ();$("#backLoad").onclick=()=>{play=null;clearPlay();go("annales")};
-}
-/* ---------- corrigés fournis par l'utilisateur pour les annales intégrées (comptes sans accès aux fichiers) ---------- */
-const shapeOf=d=>JSON.stringify(d.cases.map(c=>[c.qi?1:0,c.enonce.length?1:0,c.qs.map(q=>q.type)]));
-const shapeCat=b=>JSON.stringify(b.sh);
-const nameToks=s=>new Set(String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(/[^a-z0-9]+/).filter(w=>w.length>2));
-async function attachLocal(A,bytes,d){
-  await itx("pdf","readwrite",s=>s.put(bytes,"b:"+A.id));await itx("pdf","readwrite",s=>s.put(d,"d:"+A.id));
-  A.data=d;A.loaded=true;S.pdfs.set(A.id,bytes);docCache.delete(A.id);
-  for(const k of [...pageCache.keys()])if(k.startsWith(A.id+":"))pageCache.delete(k);
-}
-async function countLocal(){try{const ks=await itx("pdf","readonly",s=>s.getAllKeys());S.locCount=(ks||[]).filter(k=>String(k).startsWith("d:")).length}catch(e){S.locCount=0}}
-function openLocalImport(target){
-  const m=modal(`<h3>${target?"Choisir le corrigé de cette annale":"Importer mes corrigés"}</h3>
-   <p style="color:var(--muted);margin:0">${target?`${esc(ueOf(target))} · ${esc(titleOf(target))}. `:""}Sélectionne un ou plusieurs PDF corrigés. Chaque fichier est lu et contrôlé sur ton appareil, puis relié à l'annale correspondante. Rien n'est envoyé ailleurs.</p>
-   <label class="drop" id="ldrop" for="lfile"><b>Choisir des PDF</b><span>ou les glisser ici</span></label><input type="file" id="lfile" accept="application/pdf" multiple>
-   <div id="lrep" style="display:grid;gap:6px;max-height:40vh;overflow:auto"></div>
-   <div class="row"><button class="btn" type="button" id="lclose">Fermer</button></div>`);
-  let done=0,busy=false;
-  const line=(ok,t)=>{const p=document.createElement("div");p.style.cssText="font-size:.9rem;"+(ok?"":"color:var(--red)");p.textContent=(ok?"✓ ":"✗ ")+t;$("#lrep").appendChild(p)};
-  const run=async files=>{if(busy||!files||!files.length)return;busy=true;const F=[...files];
-    for(let i=0;i<F.length;i++){const f=F[i];$("#ldrop").innerHTML=`<b>Lecture ${i+1}/${F.length}…</b><span>${esc(f.name)}</span>`;
-      try{const bytes=new Uint8Array(await f.arrayBuffer());const rep=await checkBytes(bytes,{vierge:true,autodrop:true});const d=rep.A;
-        if(!d||!d.nq){line(false,f.name+" : aucune réponse corrigée trouvée.");continue}
-        if(rep.errs.length){line(false,f.name+" : format non reconnu, des réponses resteraient visibles. Fichier ignoré.");continue}
-        const sh=shapeOf(d);let cands=CATALOG.filter(b=>shapeCat(b)===sh&&b.nq===d.nq);
-        let B=null;
-        if(target){B=cands.find(b=>b.id===target.id)||null;
-          if(!B){line(false,f.name+" : ce n'est pas le corrigé de cette annale (structure différente). Utilise « Importer mes PDF » depuis l'onglet Annales pour le ranger ailleurs.");continue}}
-        else if(cands.length===1)B=cands[0];
-        else if(cands.length>1){const t=nameToks(f.name);const sc=cands.map(b=>[b,[...nameToks(b.name+" "+b.file+" "+b.ue+" "+b.exam+" "+b.date)].filter(w=>t.has(w)).length]).sort((x,y)=>y[1]-x[1]);
-          if(sc[0][1]>sc[1][1])B=sc[0][0];else{line(false,f.name+" : plusieurs annales ont exactement la même structure. Ouvre l'annale voulue et choisis ce fichier depuis son écran.");continue}}
-        if(!B){line(false,f.name+" : ne correspond à aucune annale de Swag. Tu peux l'ajouter avec « + Ajouter un PDF ».");continue}
-        const A=S.annales.get(B.id);if(!A){line(false,f.name+" : l'annale correspondante est masquée (Réglages).");continue}
-        await attachLocal(A,bytes,d);done++;line(true,f.name+" → "+ueOf(A)+" · "+titleOf(A));
-      }catch(e){line(false,f.name+" : "+(e&&e.name==="QuotaExceededError"?"stockage de l'appareil plein.":"lecture impossible."))}
-    }
-    busy=false;await countLocal();$("#ldrop").innerHTML=`<b>${pl(done,"annale reliée","annales reliées")}</b><span>Choisir d'autres PDF</span>`;
-    if(target&&target.loaded&&done){m.remove();showQ()}};
-  $("#lfile").onchange=e=>run(e.target.files);
-  const d=$("#ldrop");d.ondragover=e=>{e.preventDefault();d.classList.add("over")};d.ondragleave=()=>d.classList.remove("over");d.ondrop=e=>{e.preventDefault();d.classList.remove("over");run(e.dataTransfer.files)};
-  $("#lclose").onclick=()=>{m.remove();if(!target||V.tab!=="play")render()};
-}
-async function probeBuiltin(){
-  const b=CATALOG.find(x=>x.blob);if(!b)return;
-  try{const ac=new AbortController();const r=await fetch("/_blob/"+b.blob,{signal:ac.signal,credentials:"same-origin"});S.builtinOK=r.ok;try{ac.abort()}catch(e){}}catch(e){if(e&&e.name==="AbortError")return;S.builtinOK=false}
-  if(S.builtinOK===false){await countLocal();if(V.tab==="annales")render()}
-}
-async function diagAccess(){
-  const T=[["ancien fichier","annales/medleg-mm2-nov2025.pdf"],["nouveau fichier","data/medecine-legale.json"],["page","index.html"],["ancien asset","/_blob/efdd7e62db5b91cf7af8025821c186f1"],["nouvel asset","/_blob/d537f7d18e996b8a785b94f49fafa3cd"]];
-  const out=[];for(const [k,u] of T){try{const r=await fetch(u,{cache:"reload",credentials:"same-origin"});out.push(k+" "+r.status);try{r.body&&r.body.cancel()}catch(e){}}catch(e){out.push(k+" "+(e&&e.name||"err"))}}
-  return out.join(" · ")+" · "+location.pathname.slice(0,40);
-}
+/* ---------- relecture des annales importées quand le lecteur change de version ---------- */
 async function upgradeImported(){
-  const old=[...S.annales.values()].filter(A=>!A.builtin&&(!A.data||A.data.v!==PARSER_VERSION));
+  const old=[...S.annales.values()].filter(A=>!A.data||A.data.v!==PARSER_VERSION);
   let n=0;
   for(const A of old){
-    try{const b=await pdfBytes(A);const rep=await checkBytes(b,{vierge:true,autodrop:true});const d=rep.A;if(!d.nq||rep.errs.length){A.broken=1;continue}
+    try{const b=await pdfBytes(A);const rep=await exclusive(()=>checkClean(b));const d=rep.A;if(!d.nq||rep.errs.length){A.broken=1;continue}
       const shape=x=>x.cases.map(c=>c.qs.length).join(",");
       const same=A.data&&A.data.cases&&shape(A.data)===shape(d);
       if(!same)for(const k of [...S.results.keys()].filter(k=>k.startsWith("r_"+A.id+"_"))){await delDoc(k);S.results.delete(k)}
@@ -772,6 +729,9 @@ async function upgradeImported(){
   if(n||nb){toast((n?`${pl(n,"annale importée relue","annales importées relues")} avec le nouveau lecteur. `:"")+(nb?`${pl(nb,"annale importée masquée","annales importées masquées")} : format non reconnu, des réponses resteraient visibles.`:""));if(V.tab!=="play")render()}
 }
 
-/* ---------- démarrage ---------- */
-$("#view").innerHTML=`<div class="page"><div class="head"><div><h2>Chargement…</h2></div></div></div>`;
-initStore().then(()=>{loadCatalog();render();upgradeImported();probeBuiltin()});
+/* ---------- démarrage (appelé par auth.js une fois l'accès vérifié) ---------- */
+let started=false;
+async function startSwag(){if(started){render();return}started=true;
+  $("#view").innerHTML=`<div class="page"><div class="head"><div><h2>Chargement…</h2></div></div></div>`;
+  await initStore();render();upgradeImported();
+}

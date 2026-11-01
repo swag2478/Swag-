@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "Swag",
+  "short_name": "Swag",
+  "description": "Entraînement aux annales corrigées : réponses masquées, barème EDN, carnet d'erreurs.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f2f2f5",
+  "theme_color": "#ffffff",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

@@ -1,0 +1,14 @@
+# En-têtes HTTP (Cloudflare Pages lit ce fichier ; netlify.toml reprend les mêmes règles)
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+/sw.js
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
+/config.js
+  Cache-Control: no-cache

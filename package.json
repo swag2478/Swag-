@@ -1,0 +1,15 @@
+{
+  "name": "swag",
+  "private": true,
+  "description": "Swag : entraînement aux annales corrigées, dans le navigateur.",
+  "scripts": {
+    "build": "python3 build.py",
+    "fixtures": "python3 -I tests/make-fixtures.py",
+    "test": "python3 build.py && node tests/run-all.js"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "2.45.4",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "3.11.174"
+  }
+}

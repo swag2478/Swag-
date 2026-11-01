@@ -1,6 +1,58 @@
-# Assemble dist/index.html à partir de src/ (version actuelle = version artefact, à adapter : voir CLAUDE.md)
-import os
-s=lambda p:open(os.path.join('src',p),encoding='utf8').read()
-os.makedirs('dist',exist_ok=True)
-html=s('style.html')+s('shell.html')+"<script>const CATALOG=[];</script>\n<script>\n"+s('parse3.js')+"\n</script>\n<script>\n"+s('check-core.js')+"\n</script>\n<script>\n"+s('app.js')+"\n</script>\n"
-open('dist/index.html','w',encoding='utf8').write(html);print(len(html))
+# python3 build.py : assemble le site autonome dans dist/ (aucune dépendance : Python 3 seul).
+# Publier le dossier dist/ tel quel (Cloudflare Pages, Netlify…). Voir DEPLOIEMENT.md.
+import os, shutil, hashlib, json
+ROOT = os.path.dirname(os.path.abspath(__file__))
+SRC, DIST = os.path.join(ROOT, 'src'), os.path.join(ROOT, 'dist')
+s = lambda p: open(os.path.join(SRC, p), encoding='utf8').read()
+
+HEAD = '''<!doctype html>
+<html lang="fr"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Swag</title>
+<meta name="description" content="Entraînement aux annales corrigées : réponses masquées, barème EDN, carnet d'erreurs, sujet vierge. Tes PDF restent sur ton appareil.">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a1f" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Swag">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style>
+'''
+SW_REG = '''<script>
+if("serviceWorker" in navigator&&(location.protocol==="https:"||location.hostname==="localhost"||location.hostname==="127.0.0.1"))addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+</script>
+'''
+
+def build():
+    if os.path.isdir(DIST):
+        shutil.rmtree(DIST)
+    os.makedirs(os.path.join(DIST, 'icons'))
+    js = lambda f: '<script>\n' + s(f) + '\n</script>\n'
+    html = (HEAD + s('style.html') + '</head>\n<body>\n' + s('shell.html')
+            + js('meta.js') + js('parse3.js') + js('check-core.js') + js('app.js') + js('auth.js') + SW_REG
+            + '</body></html>\n')
+    assert 'window.claude' not in html and 'CATALOG' not in html, 'reste de la version artefact'
+    open(os.path.join(DIST, 'index.html'), 'w', encoding='utf8').write(html)
+    for f in ['config.js', 'manifest.webmanifest', '_headers']:
+        shutil.copyfile(os.path.join(SRC, f), os.path.join(DIST, f))
+    for f in sorted(os.listdir(os.path.join(SRC, 'icons'))):
+        shutil.copyfile(os.path.join(SRC, 'icons', f), os.path.join(DIST, 'icons', f))
+    # version du service worker = empreinte de tout ce qui est publié (sauf config.js, relu en réseau d'abord)
+    h = hashlib.sha256()
+    for dp, _, fs in sorted(os.walk(DIST)):
+        for f in sorted(fs):
+            if f != 'config.js':
+                h.update(f.encode()); h.update(open(os.path.join(dp, f), 'rb').read())
+    ver = h.hexdigest()[:12]
+    open(os.path.join(DIST, 'sw.js'), 'w', encoding='utf8').write(s('sw.js').replace('__BUILD__', ver))
+    json.loads(s('manifest.webmanifest'))
+    print('dist/index.html : %d octets · version %s' % (len(html), ver))
+
+if __name__ == '__main__':
+    build()
