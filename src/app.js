@@ -229,6 +229,7 @@ function vAnnales(v){
   const list=all.filter(A=>(!V.annUE||ueOf(A)===V.annUE)&&(!q||norm(titleOf(A)+" "+A.session+" "+A.ue+" "+A.name).includes(q)));
   const groups=[...new Set(list.map(ueOf))];
   v.innerHTML=`<div class="page"><div class="head"><div><h2>Annales</h2><p>${pl(all.length,"annale")} · ${all.reduce((s,A)=>s+A.nq,0)} questions · classées par UE puis par année</p></div><span style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn red" type="button" data-add>Importer des PDF</button></span></div>
+   ${(()=>{const nz=all.reduce((t,A)=>t+((A.data&&A.data.dropped)||[]).filter(x=>x.type==="ZONE").length,0);return nz?`<p class="warn" style="margin:0 0 16px">Les questions « zone à pointer » (${nz} dans tes annales) ne sont pas encore prises en charge : elles sont mises de côté pour ne pas montrer la réponse. Elles apparaîtront automatiquement dès la prochaine mise à jour du site, sans rien réimporter.</p>`:""})()}
    ${S.pending.size?`<div class="resume" style="background:var(--raise)"><div>${pl(S.pending.size,"annale de ta sauvegarde attend","annales de ta sauvegarde attendent")} son PDF : réimporte les mêmes fichiers, Swag les reconnaît et y rattache ta progression.</div></div>`:""}
    ${all.length?`<div class="filt"><div class="seg wrap" role="group" aria-label="UE"><button type="button" data-u="" aria-pressed="${!V.annUE}">Toutes</button>${ues.map(u=>`<button type="button" data-u="${esc(u)}" aria-pressed="${V.annUE===u}">${esc(u)}</button>`).join("")}</div>
    <input type="search" id="annQ" placeholder="Chercher (UE, année, MM2…)" value="${esc(V.annQ)}" aria-label="Chercher une annale"></div>
@@ -592,7 +593,7 @@ async function importOne(file,seen){
   if(pk){S.pending.delete(pk);delDoc(pk).catch(()=>{})}
   seen.set(hash,A);
   const nd=(rep.droppedQ||[]).length,nz=d.dropped.filter(x=>x.type!=="dossier"&&x.type!=="écartée").length;
-  return{st:"ok",A,note:[pl(d.nq,"question"),nd?pl(nd,"question écartée","questions écartées")+" (lecture douteuse, masquée)":"",nz?pl(nz,"question non reprise","questions non reprises")+" (zone sur image ou annulée)":""].filter(Boolean).join(" · ")};
+  return{st:"ok",A,note:[pl(d.nq,"question"),nd?pl(nd,"question écartée","questions écartées")+" (lecture douteuse, masquée)":"",nz?pl(nz,"question non reprise","questions non reprises")+" (zone à pointer, bientôt prise en charge, ou question annulée)":""].filter(Boolean).join(" · ")};
 }
 function openImport(){
   if(S.mode==="none"){toast("Ce navigateur ne permet pas d'enregistrer les PDF (navigation privée ?).");return}
