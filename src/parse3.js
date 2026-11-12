@@ -293,14 +293,17 @@ function parseZone(Q,pages,body,hide,warn){
   if(!fills.length)return fail("aucune zone dessinée");
   // légende : « nom de l'élément » puis « Nombre de points positionnés: 0 », pour chaque élément (elle peut continuer page suivante)
   const isCnt=x=>/^Nombre de points positionn/i.test(x.s),isNum=x=>/^\d+$/.test(x.s.trim());
+  const sq=[];for(let p=leg.p;p<=Math.min(leg.p+1,pages.length);p++)(pages[p-1].squares||[]).forEach(q=>{if(p>leg.p||q.t>leg.bot-2)sq.push({...q,p})});
   const rest=body.filter(x=>x.p>leg.p||x.p===leg.p&&x.top>leg.bot-1).filter(x=>x.p<=leg.p+1);
   const lines=[],cnts=[];for(const x of rest){if(isCnt(x)){cnts.push(x);continue}if(isNum(x)&&cnts.length&&sameLine(x,cnts[cnts.length-1]))continue;
     if(/^(Question|Commentaire|Réponse|Référence)/i.test(x.s)||/^\d+\/\d+$/.test(x.s.trim()))break;if(!/[\p{L}\p{N}]/u.test(x.s))continue;
-    if(lines.length>cnts.length)break; // deux noms à la suite sans compteur : on sort de la légende
-    lines.push(x)}
-  const sq=[];for(let p=leg.p;p<=Math.min(leg.p+1,pages.length);p++)(pages[p-1].squares||[]).forEach(q=>{if(p>leg.p||q.t>leg.bot-2)sq.push({...q,p})});
+    if(lines.length>cnts.length){const L=lines[lines.length-1]; // nom sur deux lignes : on le recolle
+      if(x.p===L.it.p&&x.top-L.bot<16&&x.x>=L.it.x-4){L.name+=" "+x.s.trim();L.bot=x.bot;continue}break}
+    // un nouvel élément a toujours son carré de couleur : une ligne sans carré après le premier élément n'en fait plus partie
+    if(lines.length&&!sq.some(q=>q.p===x.p&&q.r<=x.x+2&&Math.abs((q.t+q.b)/2-(x.top+x.bot)/2)<8))break;
+    lines.push({it:x,name:x.s.trim(),bot:x.bot})}
   const near=(a,b)=>a&&b&&Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2])<30;
-  const els=lines.map(x=>{const s2=sq.filter(q=>q.p===x.p&&q.r<=x.x+2&&Math.abs((q.t+q.b)/2-(x.top+x.bot)/2)<8).sort((a,b)=>b.r-a.r)[0];return{name:x.s.trim(),col:s2?s2.col:null}});
+  const els=lines.map(({it:x,name})=>{const s2=sq.filter(q=>q.p===x.p&&q.r<=x.x+2&&Math.abs((q.t+q.b)/2-(x.top+x.bot)/2)<8).sort((a,b)=>b.r-a.r)[0];return{name,col:s2?s2.col:null}});
   if(!els.length)return fail("aucun élément à placer");
   if(els.length>1&&els.some(e=>!e.col))return fail("couleur d'un élément illisible");
   const polys=fills.map(f=>({p:f.p,pts:f.pts.map(([x,y])=>[+x.toFixed(2),+y.toFixed(2)]),col:f.col}));
@@ -313,7 +316,7 @@ function parseZone(Q,pages,body,hide,warn){
     if(!im)return fail("zone hors image");
     clean.push({p:f.p,id:im.id,m:im.m,w:im.w,h:im.h,l:Math.max(im.l,f.l-4),t:Math.max(im.t,f.t-4),r:Math.min(im.r,f.r+4),b:Math.min(im.b,f.b+4)})}
   cnts.forEach(c=>hide.push(R(c.p,c.x-2,c.top-2,Math.max(c.x+c.w+30,pages[c.p-1].w*.5),c.bot+2,{kind:"label"})));
-  const lastB=[...cnts,...lines].sort((a,b)=>a.p-b.p||a.bot-b.bot).pop()||leg;
+  const lastB=[...cnts,...lines.map(l=>({p:l.it.p,bot:l.bot}))].sort((a,b)=>a.p-b.p||a.bot-b.bot).pop()||leg;
   return{type:"ZONE",k:null,st:"",opts:[],hide,qroc:null,zone:{els,clean},endAt:{p:lastB.p,y:lastB.bot}};
 }
 async function parseQ2(Q,pages,warn,raster){
