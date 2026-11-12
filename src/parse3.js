@@ -5,14 +5,14 @@
    2 « Réponse attendue » : Question N + type en toutes lettres à droite ; lettre, case ■/☑, texte ; QROC « Réponse attendue » ; TCS avec réponses des experts.
    Sortie par question : segs (zones à afficher), opts (cases cliquables), hide (zones masquées), qroc (réponses acceptées), type, k.
 */
-const PARSER_VERSION=4;
+const PARSER_VERSION=5;
 const GLYPHS="☑☐◎◉■□✓✔●○";
 const isGlyph=s=>s.length===1&&GLYPHS.includes(s);
 const CHECKED=s=>s==="☑"||s==="◉"||s==="✓"||s==="✔"||s==="●";
 const LABEL_RE=/^(Valide|Faux|Indispensable|Inacceptable|Acceptable|Neutre)$/i;
 const COUNT_RE=/^\(?\d+$|^\(?\d+\s*Experts?\)?$|^Experts?\)$/i;
 const LETTER_RE=/^([A-Z])\.?$/;
-const SUPPORTED=new Set(["QRU","QRM","QRP","QRPL","QROC","TCS"]);
+const SUPPORTED=new Set(["QRU","QRM","QRP","QRPL","QROC","TCS","ZONE"]);
 function typeFromLabel(t){t=t.toLowerCase();if(/concordance/.test(t))return"TCS";if(/d[ée]roulant/.test(t))return"QRP";if(/zone/.test(t))return"ZONE";if(/ouverte|courte/.test(t))return"QROC";if(/longue|liste/.test(t))return"QRPL";if(/pr[ée]cis/.test(t))return"QRP";if(/unique/.test(t))return"QRU";if(/multiples|réponses/.test(t))return"QRM";return"?"}
 function normType(t){t=(t||"").toUpperCase();if(t==="QTCS"||t==="TCS")return"TCS";if(t==="QZONE")return"ZONE";return t}
 
@@ -23,7 +23,7 @@ async function readPages(bytes){
     const items=(await page.getTextContent()).items.filter(it=>it.str&&it.str.trim()&&!/^[\uE000-\uF8FF\s]*$/.test(it.str)).map(it=>{
       const t=pdfjsLib.Util.transform(vp.transform,it.transform),h=it.height||Math.hypot(t[2],t[3]);
       return{s:it.str.trim(),x:t[4],y:t[5],w:it.width,h,top:t[5]-h*.95,bot:t[5]+h*.28,p};});
-    out.push({p,w:vp.width,h:vp.height,items:mergeChars(items),imgs:await pageImages(page,vp)});
+    {const im=await pageImages(page,vp);out.push({p,w:vp.width,h:vp.height,items:mergeChars(items),imgs:im,fills:im.fills,squares:im.squares,pics:im.pics})}
   }
   return out;
 }
@@ -32,18 +32,43 @@ async function pageImages(page,vp){
   const O=pdfjsLib.OPS,ol=await page.getOperatorList(),out=[];
   const mul=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
   let ctm=[1,0,0,1,0,0];const stack=[];
+  // zones à pointer : aplats semi-transparents (la zone attendue, dessinée sur l'image) et petits carrés de légende
+  let fill=null,ca=1,path=null;const fills=[],squares=[],pics=[];const gst=[];
+  const tp=(m,x,y)=>{const t=mul(vp.transform,m);return[t[0]*x+t[2]*y+t[4],t[1]*x+t[3]*y+t[5]]};
+  const flat=(ops,args,m)=>{const polys=[];let cur=null,k=0,lx=0,ly=0;const push=(x,y)=>{cur.push(tp(m,x,y));lx=x;ly=y};
+    for(const op of ops){
+      if(op===13){cur=[];polys.push(cur);push(args[k],args[k+1]);k+=2}
+      else if(op===14){if(!cur){cur=[];polys.push(cur)}push(args[k],args[k+1]);k+=2}
+      else if(op===15||op===16||op===17){const n=op===15?6:4,a=args.slice(k,k+n);k+=n;if(!cur){cur=[];polys.push(cur)}
+        const p0=[lx,ly],c1=op===15?[a[0],a[1]]:op===16?[lx,ly]:[a[0],a[1]],c2=op===15?[a[2],a[3]]:[a[0],a[1]],p3=op===15?[a[4],a[5]]:[a[2],a[3]];
+        for(let i=1;i<=8;i++){const u=i/8,v=1-u;push(v*v*v*p0[0]+3*v*v*u*c1[0]+3*v*u*u*c2[0]+u*u*u*p3[0],v*v*v*p0[1]+3*v*v*u*c1[1]+3*v*u*u*c2[1]+u*u*u*p3[1])}}
+      else if(op===19){const [x,y,w,h]=args.slice(k,k+4);k+=4;cur=null;polys.push([tp(m,x,y),tp(m,x+w,y),tp(m,x+w,y+h),tp(m,x,y+h)])}
+      else if(op===18){cur=null}}
+    return polys.filter(p=>p.length>=3)};
+  const bb=pts=>{const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);return{l:Math.min(...xs),t:Math.min(...ys),r:Math.max(...xs),b:Math.max(...ys)}};
   const box=m=>{const t=mul(vp.transform,m),pts=[[0,0],[1,0],[0,1],[1,1]].map(([u,v])=>[t[0]*u+t[2]*v+t[4],t[1]*u+t[3]*v+t[5]]);
     const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]),l=Math.min(...xs),r=Math.max(...xs),tp=Math.min(...ys),b=Math.max(...ys);
-    if((r-l)*(b-tp)>=60&&r-l>=3&&b-tp>=3)out.push({l,t:tp,r,b})};
+    if((r-l)*(b-tp)>=60&&r-l>=3&&b-tp>=3){out.push({l,t:tp,r,b});return out[out.length-1]}};
   const IMG=new Set([O.paintImageXObject,O.paintInlineImageXObject,O.paintImageMaskXObject,O.paintJpegXObject,O.paintImageXObjectRepeat,O.paintSolidColorImageMask].filter(x=>x!=null));
   for(let i=0;i<ol.fnArray.length;i++){const fn=ol.fnArray[i],a=ol.argsArray[i];
-    if(fn===O.save)stack.push(ctm);else if(fn===O.restore){if(stack.length)ctm=stack.pop()}
+    if(fn===O.save){stack.push(ctm);gst.push([fill,ca])}else if(fn===O.restore){if(stack.length)ctm=stack.pop();if(gst.length)[fill,ca]=gst.pop()}
+    else if(fn===O.setFillRGBColor){const c=a&&(a.length!=null?a:[a[0],a[1],a[2]]);fill=typeof c==="string"?c:[c[0],c[1],c[2]].map(v=>Math.round(v))}
+    else if(fn===O.setFillGray){fill=[1,1,1].map(()=>Math.round((a[0]||0)*255))}
+    else if(fn===O.setGState){for(const [k2,v] of (a&&a[0])||[])if(k2==="ca")ca=v}
+    else if(fn===O.constructPath){path={ops:a[0],args:a[1],m:ctm}}
+    else if(fn===O.fill||fn===O.eoFill||fn===O.fillStroke||fn===O.eoFillStroke||fn===O.closeFillStroke||fn===O.closeEOFillStroke){
+      if(path){const polys=flat(path.ops,path.args,path.m),col=Array.isArray(fill)?fill:null;
+        for(const pts of polys){const r=bb(pts);
+          if(ca<0.95&&ca>0.02&&(r.r-r.l)*(r.b-r.t)>=30)fills.push({pts,...r,col,ca});
+          else if(ca>=0.95&&col&&r.r-r.l>=4&&r.r-r.l<=22&&r.b-r.t>=4&&r.b-r.t<=22)squares.push({...r,col})}}
+      path=null}
+    else if(fn===O.endPath)path=null
     else if(fn===O.transform)ctm=mul(ctm,a);
     else if(fn===O.paintFormXObjectBegin){stack.push(ctm);if(a&&a[0]&&a[0].length===6)ctm=mul(ctm,a[0])}
     else if(fn===O.paintFormXObjectEnd){if(stack.length)ctm=stack.pop()}
-    else if(IMG.has(fn))box(ctm);
+    else if(IMG.has(fn)){const r=box(ctm);if(r&&(fn===O.paintImageXObject||fn===O.paintJpegXObject)&&a&&typeof a[0]==="string")pics.push({...r,id:a[0],m:ctm.slice(),w:a[1],h:a[2]})}
     else if(fn===O.paintInlineImageXObjectGroup||fn===O.paintImageMaskXObjectGroup){const g=a&&a[0];(Array.isArray(g)?g:[]).forEach(im=>box(im&&im.transform?mul(ctm,im.transform):ctm))}}
-  return out;
+  out.fills=fills;out.squares=squares;out.pics=pics;return out;
 }
 // une image qui touche une zone masquée, ou qui se trouve entre deux zones masquées sans rien de visible entre elles
 // (suite d'un commentaire sur la page suivante, extrait de référentiel en image…), est masquée en entier
@@ -161,8 +186,8 @@ async function parsePdf(bytes,o){
     for(const Q of cs.qs){
       const segs=bands([Q.head,...Q.items]);
       const res=fmt===1?parseQ1(Q,pages,warn):await parseQ2(Q,pages,warn,raster);
-      if(!SUPPORTED.has(res.type)||(!res.opts.length&&!res.qroc)){dropped.push({type:res.type||Q.type,n:Q.n,segs});continue}
-      oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),_end:res.endAt,_items:[Q.head,...Q.items]});
+      if(!SUPPORTED.has(res.type)||(!res.opts.length&&!res.qroc&&!res.zone)){dropped.push({type:res.type||Q.type,n:Q.n,segs});continue}
+      oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),...(res.zone?{zone:res.zone}:{}),_end:res.endAt,_items:[Q.head,...Q.items]});
     }
     if(oc.qs.length)outCases.push(oc);else if(oc.enonce.length)dropped.push({type:"dossier",segs:oc.enonce});
   }
@@ -256,6 +281,35 @@ function parseQ1(Q,pages,warn){
   return{type,k:k?+k:null,st,opts,hide,qroc,endAt:typeof endAt!=="undefined"?endAt:null};
 }
 
+// zone à pointer (corrigés « Réponse attendue ») : la zone attendue est un aplat semi-transparent dessiné sur l'image.
+// À l'affichage, l'image d'origine est repeinte par-dessus (zone effacée) ; la zone sert à corriger le point placé.
+function parseZone(Q,pages,body,hide,warn){
+  const fail=m=>{warn.push("zone à pointer Q"+Q.n+" : "+m);return{type:"ZONE",opts:[],hide,qroc:null}};
+  const all=[Q.head,...Q.items];const leg=body.find(x=>/^Éléments à placer/i.test(x.s));const cnt=body.find(x=>/^Nombre de points positionn/i.test(x.s));
+  if(!leg)return fail("légende introuvable");
+  const p0=Q.head.p,t0=Q.head.bot;
+  const inQ=(p,t,b)=>(p>p0||t>=t0-1)&&(p<leg.p||p===leg.p&&b<=leg.top+2);
+  const fills=[],pics=[];for(let p=p0;p<=leg.p;p++){const pg=pages[p-1];(pg.fills||[]).forEach(f=>{if(inQ(p,f.t,f.b))fills.push({...f,p})});(pg.pics||[]).forEach(im=>{if(inQ(p,im.t,im.b))pics.push({...im,p})})}
+  if(!fills.length)return fail("aucune zone dessinée");
+  // légende : un nom par ligne, avec son carré de couleur
+  // la légende peut continuer en haut de la page suivante
+  const end=cnt||null,lastP=end?end.p:leg.p+1;const after=x=>x.p>leg.p||x.top>leg.bot-1,before=x=>!end||x.p<end.p||x.p===end.p&&x.top<end.top-1;
+  const lines=body.filter(x=>after(x)&&before(x)&&x.p<=lastP&&/[\p{L}\p{N}]/u.test(x.s)&&!/^(Question|Commentaire|Réponse)/i.test(x.s));
+  const sq=[];for(let p=leg.p;p<=Math.min(lastP,pages.length);p++)(pages[p-1].squares||[]).forEach(q=>{const x={p,top:q.t,bot:q.b};if(after(x)&&before(x))sq.push({...q,p})});
+  const near=(a,b)=>a&&b&&Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2])<30;
+  const els=lines.map(x=>{const s2=sq.filter(q=>q.p===x.p&&q.r<=x.x+2&&Math.abs((q.t+q.b)/2-(x.top+x.bot)/2)<8).sort((a,b)=>b.r-a.r)[0];return{name:x.s.trim(),col:s2?s2.col:null}});
+  if(!els.length)return fail("aucun élément à placer");
+  const polys=fills.map(f=>({p:f.p,pts:f.pts.map(([x,y])=>[+x.toFixed(2),+y.toFixed(2)]),col:f.col}));
+  for(const e of els)e.polys=polys.filter(f=>els.length===1||near(f.col,e.col)).map(({p,pts})=>({p,pts}));
+  if(els.some(e=>!e.polys.length))return fail("zone sans élément correspondant");
+  // images à repeindre : celles qui contiennent une zone (la partie repeinte = l'emprise des zones, avec une marge)
+  const clean=[];for(const f of fills){const im=pics.filter(m=>m.p===f.p&&f.l>=m.l-2&&f.r<=m.r+2&&f.t>=m.t-2&&f.b<=m.b+2).pop();
+    if(!im)return fail("zone hors image");
+    clean.push({p:f.p,id:im.id,m:im.m,w:im.w,h:im.h,l:Math.max(im.l,f.l-4),t:Math.max(im.t,f.t-4),r:Math.min(im.r,f.r+4),b:Math.min(im.b,f.b+4)})}
+  if(cnt)hide.push(R(cnt.p,cnt.x-2,cnt.top-2,Math.max(cnt.x+cnt.w+30,pages[cnt.p-1].w*.5),cnt.bot+2,{kind:"label"}));
+  const lastB=cnt||lines[lines.length-1]||leg;
+  return{type:"ZONE",k:null,st:"",opts:[],hide,qroc:null,zone:{els,clean},endAt:{p:lastB.p,y:lastB.bot}};
+}
 async function parseQ2(Q,pages,warn,raster){
   const W=pages[Q.head.p-1].w;
   const items=Q.items.filter(x=>!(x.x>W*.6&&x.p===Q.head.p&&x.top>Q.head.top-6&&x.top<Q.head.top+18));
@@ -270,6 +324,7 @@ async function parseQ2(Q,pages,warn,raster){
     let j=i;const blk=[];while(j<items.length&&(j===i||!(isLet(items[j])||/^Commentaire/i.test(items[j].s)&&items[j].x<W*.3))){blk.push(items[j]);inCom.add(items[j]);j++}
     mergeBlock(blk,"comment",W).forEach(m=>hide.push(m));i=j-1}
   const body=items.filter(x=>!inCom.has(x));
+  if(type==="ZONE")return parseZone(Q,pages,body,hide,warn);
   const qh=body.findIndex(x=>/^Réponses? attendues?$/.test(x.s));
   const glyphRows=body.filter(x=>isGlyph(x.s)&&x.x<W*.3);
   if(type==="?"||type==="QRM"&&qh>=0&&!glyphRows.length&&!body.some(x=>LETTER_RE.test(x.s)&&x.x<W*.12)){

@@ -321,4 +321,12 @@ details.rev>.body{padding:0 12px 12px;display:grid;gap:8px}
 textarea.memails{width:100%;min-height:96px;border:1px solid var(--line);border-radius:12px;background:var(--raise);padding:10px 12px;font:inherit;resize:vertical}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* zones à pointer */
+.crop.zone{cursor:crosshair}.done .crop.zone,.crops.done .crop.zone{cursor:default}
+.zpt{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:3px solid #fff;background:var(--zc,var(--red));box-shadow:0 0 0 2px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.4);pointer-events:none;display:grid;place-items:center;font:700 11px/1 system-ui,sans-serif;color:#fff;z-index:3}
+.zpt.ok{background:#1d8a4b}.zpt.ko{background:#d7263d}
+.zbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 4px}
+.zbar .zh{color:var(--muted);font-size:.92rem;width:100%}
+.zel{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--raise);color:var(--fg);font:inherit;cursor:pointer;min-height:40px}
+.zel i{width:14px;height:14px;border-radius:4px;display:inline-block;flex:none}.zel.on{border-color:var(--red);box-shadow:0 0 0 2px var(--red) inset}.zel:disabled{cursor:default;opacity:.85}
 </style>

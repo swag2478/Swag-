@@ -48,6 +48,8 @@ const titleOf=A=>[A.exam,sessionLabel(dateOf(A))||A.session].filter(Boolean).joi
 /* ---------- barème ---------- */
 function scoreQ(Q,sel,txt){
   const st=S.settings;
+  if(Q.zone){const pts=zoneGet(txt),ok=zoneOk(Q,pts),n=ok.filter(Boolean).length,N=ok.length;if(!pts.some(Boolean))return{s:0,d:"Aucun point placé"};
+    return{s:n/N,d:N>1?`${n} élément${n>1?"s":""} bien placé${n>1?"s":""} sur ${N}`:(n?"Point dans la zone attendue":"Point hors de la zone attendue")}}
   if(Q.qroc){const ok=!!norm(txt)&&Q.qroc.ans.some(a=>norm(a)===norm(txt));return{s:ok?1:0,d:ok?"Réponse acceptée":"Réponse non reconnue"}}
   if(Q.type==="TCS"){const mx=Math.max(1,...Q.opts.map(o=>o.ex||0));if(!sel.size)return{s:0,d:"Aucune réponse"};const i=[...sel][0],e=Q.opts[i].ex||0;return{s:e/mx,d:`${pl(e,"expert")} sur ${Q.opts.reduce((s,o)=>s+(o.ex||0),0)} ont choisi cette réponse`}}
   const disc=Q.opts.filter((o,i)=>!!o.v!==sel.has(i)).length;
@@ -121,11 +123,40 @@ async function pdfBytes(A){
 const docCache=new Map(),pageCache=new Map();
 const PDFJS=window.pdfjsLib;
 function pdfDoc(A){if(!docCache.has(A.id)){const p=pdfBytes(A).then(b=>PDFJS.getDocument({data:b.slice()}).promise);p.catch(()=>docCache.delete(A.id));docCache.set(A.id,p)}return docCache.get(A.id)}
-async function pageCanvas(A,p,scale){
-  const s=scale||Math.min(3,Math.max(2,(window.devicePixelRatio||1)*1.4)),key=A.id+":"+p+":"+s;if(pageCache.has(key))return pageCache.get(key);
+// zones à pointer : régions d'image à repeindre sur cette page (l'image d'origine recouvre la zone dessinée)
+const zoneClean=(A,p)=>((A.data&&A.data.cases)||[]).flatMap(cs=>cs.qs.flatMap(q=>q.zone?q.zone.clean.filter(c=>c.p===p):[]));
+function imgSource(o){
+  if(!o)return null;if(o.bitmap)return o.bitmap;if(o instanceof HTMLCanvasElement||o instanceof HTMLImageElement||(window.ImageBitmap&&o instanceof ImageBitmap))return o;
+  if(!o.data||!o.width||!o.height)return null;const w=o.width,h=o.height,c=document.createElement("canvas");c.width=w;c.height=h;
+  const id=c.getContext("2d").createImageData(w,h),d=id.data,src=o.data;
+  if(o.kind===3)d.set(src.subarray?src.subarray(0,w*h*4):src.slice(0,w*h*4));
+  else if(o.kind===2){for(let i=0,j=0;i<w*h;i++,j+=3){d[i*4]=src[j];d[i*4+1]=src[j+1];d[i*4+2]=src[j+2];d[i*4+3]=255}}
+  else if(o.kind===1){const rb=(w+7)>>3;for(let y=0;y<h;y++)for(let x=0;x<w;x++){const bit=(src[y*rb+(x>>3)]>>(7-(x&7)))&1,v=bit?255:0,i=(y*w+x)*4;d[i]=d[i+1]=d[i+2]=v;d[i+3]=255}}
+  else return null;
+  c.getContext("2d").putImageData(id,0,0);return c;
+}
+async function paintClean(ctx,page,vp,list){
+  const mul=(m,n)=>[m[0]*n[0]+m[2]*n[1],m[1]*n[0]+m[3]*n[1],m[0]*n[2]+m[2]*n[3],m[1]*n[2]+m[3]*n[3],m[0]*n[4]+m[2]*n[5]+m[4],m[1]*n[4]+m[3]*n[5]+m[5]];
+  // les identifiants d'image changent d'un chargement du PDF à l'autre : on retrouve l'image par sa position (matrice) dans la page rendue
+  const O=PDFJS.OPS,ol=await page.getOperatorList(),found=[];let ctm=[1,0,0,1,0,0];const st=[];
+  for(let i=0;i<ol.fnArray.length;i++){const fn=ol.fnArray[i],a=ol.argsArray[i];
+    if(fn===O.save)st.push(ctm);else if(fn===O.restore){if(st.length)ctm=st.pop()}else if(fn===O.transform)ctm=mul(ctm,a);
+    else if(fn===O.paintFormXObjectBegin){st.push(ctm);if(a&&a[0]&&a[0].length===6)ctm=mul(ctm,a[0])}else if(fn===O.paintFormXObjectEnd){if(st.length)ctm=st.pop()}
+    else if((fn===O.paintImageXObject||fn===O.paintJpegXObject)&&a&&typeof a[0]==="string")found.push({id:a[0],m:ctm,w:a[1],h:a[2]})}
+  const same=(m,n)=>m.every((v,i)=>Math.abs(v-n[i])<=1e-3*Math.max(1,Math.abs(v)));
+  for(const c of list){let src=null;const f=found.find(x=>x.w===c.w&&x.h===c.h&&same(x.m,c.m));
+    try{if(f)src=imgSource((/^g_/.test(f.id)?page.commonObjs:page.objs).get(f.id))}catch(e){src=null}
+    const k=vp.scale,x=c.l*k,y=c.t*k,w=(c.r-c.l)*k,h=(c.b-c.t)*k;
+    ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.beginPath();ctx.rect(x,y,w,h);ctx.clip();
+    if(src){const M=mul(vp.transform,c.m);ctx.setTransform(M[0],M[1],M[2],M[3],M[4],M[5]);ctx.transform(1/c.w,0,0,-1/c.h,0,0);ctx.imageSmoothingEnabled=true;ctx.drawImage(src,0,-c.h,c.w,c.h)}
+    else{ctx.fillStyle="#9aa0a6";ctx.fillRect(x,y,w,h)} // image introuvable : la zone est couverte d'un aplat gris, jamais laissée visible
+    ctx.restore()}
+}
+async function pageCanvas(A,p,scale,raw){
+  const s=scale||Math.min(3,Math.max(2,(window.devicePixelRatio||1)*1.4)),zc=raw?[]:zoneClean(A,p),key=A.id+":"+p+":"+s+(zc.length?":z":"");if(pageCache.has(key))return pageCache.get(key);
   const pr=(async()=>{const doc=await pdfDoc(A),page=await doc.getPage(p),vp=page.getViewport({scale:s});
     const cv=document.createElement("canvas");cv.width=Math.floor(vp.width);cv.height=Math.floor(vp.height);
-    await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;return{cv,s}})();
+    await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;if(zc.length)await paintClean(cv.getContext("2d"),page,vp,zc);return{cv,s}})();
   if(!scale){pageCache.set(key,pr);if(pageCache.size>12)pageCache.delete(pageCache.keys().next().value)}
   pr.catch(()=>pageCache.delete(key));return pr;
 }
@@ -229,7 +260,7 @@ function vAnnales(v){
   const list=all.filter(A=>(!V.annUE||ueOf(A)===V.annUE)&&(!q||norm(titleOf(A)+" "+A.session+" "+A.ue+" "+A.name).includes(q)));
   const groups=[...new Set(list.map(ueOf))];
   v.innerHTML=`<div class="page"><div class="head"><div><h2>Annales</h2><p>${pl(all.length,"annale")} · ${all.reduce((s,A)=>s+A.nq,0)} questions · classées par UE puis par année</p></div><span style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn red" type="button" data-add>Importer des PDF</button></span></div>
-   ${(()=>{const nz=all.reduce((t,A)=>t+((A.data&&A.data.dropped)||[]).filter(x=>x.type==="ZONE").length,0);return nz?`<p class="warn" style="margin:0 0 16px">Les questions « zone à pointer » (${nz} dans tes annales) ne sont pas encore prises en charge : elles sont mises de côté pour ne pas montrer la réponse. Elles apparaîtront automatiquement dès la prochaine mise à jour du site, sans rien réimporter.</p>`:""})()}
+   ${(()=>{const nz=all.reduce((t,A)=>t+((A.data&&A.data.dropped)||[]).filter(x=>x.type==="ZONE").length,0);return nz?`<p class="warn" style="margin:0 0 16px">${pl(nz,"question « zone à pointer » de tes annales est mise","questions « zone à pointer » de tes annales sont mises")} de côté : dans ces corrigés, la zone attendue n'est pas dessinée sur l'image (ou pas lisible), donc Swag ne peut pas corriger ton point. Les autres zones à pointer sont proposées normalement.</p>`:""})()}
    ${S.pending.size?`<div class="resume" style="background:var(--raise)"><div>${pl(S.pending.size,"annale de ta sauvegarde attend","annales de ta sauvegarde attendent")} son PDF : réimporte les mêmes fichiers, Swag les reconnaît et y rattache ta progression.</div></div>`:""}
    ${all.length?`<div class="filt"><div class="seg wrap" role="group" aria-label="UE"><button type="button" data-u="" aria-pressed="${!V.annUE}">Toutes</button>${ues.map(u=>`<button type="button" data-u="${esc(u)}" aria-pressed="${V.annUE===u}">${esc(u)}</button>`).join("")}</div>
    <input type="search" id="annQ" placeholder="Chercher (UE, année, MM2…)" value="${esc(V.annQ)}" aria-label="Chercher une annale"></div>
@@ -272,16 +303,16 @@ function vSeries(v){
 
 /* ---------- rendu d'une question ---------- */
 const X0=.044;
-async function cropEl(A,seg,overlays){
+async function cropEl(A,seg,overlays,raw){
   const pg=A.data.pages[seg.p-1],W=pg.w,x0=pg.x0!=null?Math.min(pg.x0,W*X0):W*X0,x1=pg.x1!=null?Math.max(pg.x1,W-W*X0):W-W*X0,cw=x1-x0,ch=seg.y1-seg.y0;
-  const wrap=document.createElement("div");wrap.className="crop loading";wrap.style.setProperty("--cw",cw);wrap.style.aspectRatio=cw+" / "+ch;
+  const wrap=document.createElement("div");wrap.className="crop loading";wrap.style.setProperty("--cw",cw);wrap.style.aspectRatio=cw+" / "+ch;wrap._geo={p:seg.p,x0,y0:seg.y0,cw,ch};
   for(const o of overlays){if(o.p!==seg.p)continue;const t=Math.max(o.t,seg.y0),b=Math.min(o.b,seg.y1);if(b-t<1)continue;
     const l=Math.max(o.l,x0),r=Math.min(o.r,x1);if(r-l<1)continue;
     const el=o.el;
     // un cache qui touche un bord du cadre déborde de 2 px : aucune colonne de pixels de la page ne reste visible sur ce bord
     const eL=l<=x0+.01?2:0,eR=r>=x1-.01?2:0,eT=t<=seg.y0+.01?2:0,eB=b>=seg.y1-.01?2:0;
     el.style.left=`calc(${(l-x0)/cw*100}% - ${eL}px)`;el.style.top=`calc(${(t-seg.y0)/ch*100}% - ${eT}px)`;el.style.width=`calc(${(r-l)/cw*100}% + ${eL+eR}px)`;el.style.height=`calc(${(b-t)/ch*100}% + ${eT+eB}px)`;wrap.appendChild(el)}
-  try{const {cv:src,s}=await pageCanvas(A,seg.p);
+  try{const {cv:src,s}=await pageCanvas(A,seg.p,0,raw);
     const cv=document.createElement("canvas");cv.width=Math.round(cw*s);cv.height=Math.max(1,Math.round(ch*s));
     cv.getContext("2d").drawImage(src,x0*s,seg.y0*s,cw*s,ch*s,0,0,cv.width,cv.height);wrap.prepend(cv);wrap.classList.remove("loading");
   }catch(e){wrap.classList.remove("loading");wrap.querySelectorAll(".opt,.mask").forEach(x=>x.remove());wrap.style.aspectRatio="";wrap.insertAdjacentHTML("afterbegin",`<p style="padding:16px;margin:0;color:#666">Le PDF de cette annale n'a pas pu être chargé.<br><small style="word-break:break-all">${esc(String(e&&e.message||e))}</small></p>`)}
@@ -297,7 +328,18 @@ function makeOverlays(Q,sel,interactive){
   (Q.hide||[]).forEach(h=>{const m=document.createElement("div");m.className="mask k-"+h.kind;if(h.kind==="qroc")m.textContent="Réponse masquée";ov.push({...h,el:m})});
   return ov;
 }
-async function cropsInto(box,A,segs,ov){for(const s of segs)box.appendChild(await cropEl(A,s,ov))}
+async function cropsInto(box,A,segs,ov,raw){for(const s of segs)box.appendChild(await cropEl(A,s,ov,raw))}
+/* ---------- zones à pointer ---------- */
+// réponse stockée dans txt : "Z:" + JSON [[p,x,y]|null, …] (un point par élément à placer, en coordonnées de page)
+const zoneGet=t=>{try{return /^Z:/.test(t||"")?JSON.parse(t.slice(2)):[]}catch(e){return[]}};
+const zoneStr=pts=>"Z:"+JSON.stringify(pts.map(p=>p?[p[0],+p[1].toFixed(2),+p[2].toFixed(2)]:null));
+function inPoly(x,y,pts){let c=false;for(let i=0,j=pts.length-1;i<pts.length;j=i++){const [xi,yi]=pts[i],[xj,yj]=pts[j];if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)c=!c}return c}
+const zoneOk=(Q,pts)=>Q.zone.els.map((e,i)=>{const p=pts[i];return!!p&&e.polys.some(z=>z.p===p[0]&&inPoly(p[1],p[2],z.pts))});
+const rgb=c=>c?`rgb(${c[0]},${c[1]},${c[2]})`:"var(--red)";
+function zoneMarks(box,Q,pts,done){box.querySelectorAll(".zpt").forEach(x=>x.remove());const ok=done?zoneOk(Q,pts):[];
+  box.querySelectorAll(".crop").forEach(w=>{const g=w._geo;if(!g)return;pts.forEach((p,i)=>{if(!p||p[0]!==g.p||p[2]<g.y0||p[2]>g.y0+g.ch)return;
+    const m=document.createElement("span");m.className="zpt"+(done?(ok[i]?" ok":" ko"):"");m.style.left=(p[1]-g.x0)/g.cw*100+"%";m.style.top=(p[2]-g.y0)/g.ch*100+"%";
+    m.style.setProperty("--zc",rgb(Q.zone.els[i].col));m.textContent=Q.zone.els.length>1?String(i+1):"";m.title=Q.zone.els[i].name;w.appendChild(m)})})}
 function resultHTML(Q,r,txt,showOverride){
   const ans=Q.qroc?`<div class="ans">${txt!=null?`Ta réponse : <b>${esc(txt||"(vide)")}</b> · `:""}Réponses acceptées : <b>${Q.qroc.ans.map(esc).join(" · ")}</b></div>`:"";
   return`<div class="result ${cls(r.s)}"><div class="pts">${fr(r.s,2)}<small style="font-size:.5em;color:var(--muted)"> / 1</small></div><div class="why">${esc(r.d)}</div>${showOverride&&Q.qroc&&r.s<1?`<button class="btn small" type="button" data-ovr>Compter juste</button>`:""}${ans}</div>`;
@@ -357,8 +399,16 @@ async function showQ(){
   const still=()=>play&&play.id===pid&&play.i===me&&V.tab==="play";
   if(en)await cropsInto(en,A,C.enonce,[]);
   if(!still())return;
-  await cropsInto(qc,A,Q.segs,ov);
+  await cropsInto(qc,A,Q.segs,ov,state.done&&!!Q.zone);
   if(!still())return;
+  if(Q.zone){const els=Q.zone.els,pts=zoneGet(a.txt);while(pts.length<els.length)pts.push(null);let cur=Math.max(0,pts.findIndex(p=>!p));
+    const bar=document.createElement("div");bar.className="zbar";qc.after(bar);
+    const draw=()=>{bar.innerHTML=`<span class="zh">${state.done?"Ton placement (zone attendue dessinée sur l'image)":els.length>1?"Choisis l'élément, puis touche l'image pour le placer :":"Touche l'image pour placer ton point :"}</span>${els.map((e,i)=>`<button type="button" class="zel${i===cur&&!state.done?" on":""}" data-ze="${i}" ${state.done?"disabled":""}><i style="background:${rgb(e.col)}"></i>${els.length>1?`<b>${i+1}</b> `:""}${esc(e.name)}${pts[i]?" ✓":""}</button>`).join("")}`;
+      bar.querySelectorAll("[data-ze]").forEach(b=>b.onclick=()=>{cur=+b.dataset.ze;draw()});zoneMarks(qc,Q,pts,state.done)};
+    qc.querySelectorAll(".crop").forEach(w=>{w.classList.add("zone");w.onclick=e=>{if(state.done)return;const g=w._geo,R=w.getBoundingClientRect();
+      pts[cur]=[g.p,g.x0+(e.clientX-R.left)/R.width*g.cw,g.y0+(e.clientY-R.top)/R.height*g.ch];a.txt=zoneStr(pts);
+      if(exam){savePlay();refreshTable()}const nx=pts.findIndex(p=>!p);if(nx>=0)cur=nx;draw()}});
+    draw()}
   const input=$("#qin");if(input&&!state.done&&matchMedia("(hover:hover)").matches)input.focus();
   if(input&&exam)input.oninput=()=>{a.txt=input.value;savePlay();refreshTable()};
   const go=$("#go");
@@ -368,10 +418,11 @@ async function showQ(){
     const o=$("[data-ovr]");if(o)o.onclick=()=>{a.s=1;a.ovr=1;saveResult(it.a,it.c,it.q,1,sel,a.txt);savePlay();showQ()};
     go.textContent=play.i+1<play.items.length?"Suivante →":"Voir le bilan"};
   if(state.done)showDone();
-  const validate=()=>{a.sel=[...sel];a.txt=input?input.value:"";const r=scoreQ(Q,sel,a.txt);a.s=r.s;a.done=true;state.done=true;
+  const validate=()=>{a.sel=[...sel];a.txt=input?input.value:Q.zone?(a.txt||""):"";const r=scoreQ(Q,sel,a.txt);a.s=r.s;a.done=true;state.done=true;
     saveResult(it.a,it.c,it.q,r.s,sel,a.txt);savePlay();showDone();refreshTable();
     const sc=play.ans.reduce((s,x)=>s+(x&&x.done?x.s:0),0),n=play.ans.filter(x=>x&&x.done).length;$(".act .sc").innerHTML=`Série : <b>${fr(sc,2)}</b> / ${n} pt${n>1?"s":""}`;
-    const qs=$(".qt-score");if(qs)qs.innerHTML=`Série : <b>${fr(sc,2)}</b> / ${n}`};
+    const qs=$(".qt-score");if(qs)qs.innerHTML=`Série : <b>${fr(sc,2)}</b> / ${n}`;
+    if(Q.zone)showQ()}; // la zone attendue n'apparaît qu'une fois la question corrigée : nouveau rendu, page d'origine
   go.onclick=()=>{if(exam){if(input){a.txt=input.value}a.sel=[...sel];savePlay();play.i+1<play.items.length?jump(play.i+1):finish();return}
     state.done?(play.i+1<play.items.length?jump(play.i+1):finish()):validate()};
   if(input)input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go.click()}});
@@ -413,7 +464,7 @@ function vBilan(v){
   v.querySelectorAll("details.rev").forEach(d=>d.addEventListener("toggle",async()=>{if(!d.open||d._done)return;d._done=true;
     const i=+d.dataset.i,it=p.items[i],A=S.annales.get(it.a);const Q=qOf(it.a,it.c,it.q);if(!Q)return;const ans=p.ans[i];
     const body=d.querySelector(".body"),box=document.createElement("div");box.className="crops done";body.appendChild(box);
-    await cropsInto(box,A,Q.segs,makeOverlays(Q,new Set(ans.sel||[]),false));
+    await cropsInto(box,A,Q.segs,makeOverlays(Q,new Set(ans.sel||[]),false),!!Q.zone);if(Q.zone)zoneMarks(box,Q,zoneGet(ans.txt),true);
     body.insertAdjacentHTML("beforeend",resultHTML(Q,{s:ans.s,d:ans.ovr?"Comptée juste par toi":scoreQ(Q,new Set(ans.sel||[]),ans.txt||"").d},Q.qroc?ans.txt||"":null,false));}));
 }
 
@@ -452,7 +503,7 @@ function vCarnet(v){
 async function fillErr(el){
   const r=el._r,A=S.annales.get(r.a),Q=qOf(r.a,r.c,r.q),sel=new Set(r.sel||[]);
   const qb=el.querySelector("[data-q]");qb.innerHTML="";
-  await cropsInto(qb,A,Q.segs,makeOverlays(Q,sel,false));
+  await cropsInto(qb,A,Q.segs,makeOverlays(Q,sel,false),!!Q.zone);if(Q.zone)zoneMarks(qb,Q,zoneGet(r.txt),true);
   el.querySelector("[data-res]").innerHTML=resultHTML(Q,{s:r.last,d:scoreQ(Q,sel,r.txt||"").d},Q.qroc?(r.txt||""):null,false)+(hasOfficial(Q)?`<p class="offi">La correction officielle (justifications, commentaire) est affichée dans la capture.</p>`:"");
 }
 
@@ -495,7 +546,7 @@ function vReglages(v){
   v.innerHTML=`<div class="page" style="max-width:860px"><div class="head"><div><h2>Réglages</h2></div></div>
    ${installHTML(true)}
    <section class="panel"><h3>Apparence</h3><div class="seg" role="group" aria-label="Thème">${[["auto","Auto"],["light","Clair"],["dark","Sombre"]].map(([k,t])=>`<button type="button" data-th="${k}" aria-pressed="${th===k}">${t}</button>`).join("")}</div></section>
-   <section class="panel"><h3>Barème</h3><p style="margin:0;color:var(--muted)">QRM : points selon le nombre de discordances (case cochée à tort ou oubliée). QRU : tout ou rien. QRP et QRPL : une proposition inacceptable cochée ou une indispensable oubliée donne 0, trop de cases cochées aussi. TCS : selon la part d'experts ayant choisi ta réponse.</p>
+   <section class="panel"><h3>Barème</h3><p style="margin:0;color:var(--muted)">QRM : points selon le nombre de discordances (case cochée à tort ou oubliée). QRU : tout ou rien. QRP et QRPL : une proposition inacceptable cochée ou une indispensable oubliée donne 0, trop de cases cochées aussi. TCS : selon la part d'experts ayant choisi ta réponse. Zone à pointer : 1 point si ton point est dans la zone attendue (avec plusieurs éléments à placer, au prorata des éléments bien placés).</p>
     <div class="set"><label class="field"><span>1 discordance</span>${sel("b1",[[.5,"0,5"],[.4,"0,4"],[.3,"0,3"],[.2,"0,2"],[0,"0"]],st.b1)}</label>
     <label class="field"><span>2 discordances</span>${sel("b2",[[.2,"0,2"],[.1,"0,1"],[0,"0"]],st.b2)}</label>
     <label class="field"><span>QRP et QRPL</span>${sel("qrpl",[["prorata","Au prorata des bonnes réponses"],["strict","Tout ou rien"]],st.qrpl)}</label></div></section>
@@ -593,7 +644,7 @@ async function importOne(file,seen){
   if(pk){S.pending.delete(pk);delDoc(pk).catch(()=>{})}
   seen.set(hash,A);
   const nd=(rep.droppedQ||[]).length,nz=d.dropped.filter(x=>x.type!=="dossier"&&x.type!=="écartée").length;
-  return{st:"ok",A,note:[pl(d.nq,"question"),nd?pl(nd,"question écartée","questions écartées")+" (lecture douteuse, masquée)":"",nz?pl(nz,"question non reprise","questions non reprises")+" (zone à pointer, bientôt prise en charge, ou question annulée)":""].filter(Boolean).join(" · ")};
+  return{st:"ok",A,note:[pl(d.nq,"question"),nd?pl(nd,"question écartée","questions écartées")+" (lecture douteuse, masquée)":"",nz?pl(nz,"question non reprise","questions non reprises")+" (zone à pointer sans zone dessinée dans le corrigé, ou question annulée)":""].filter(Boolean).join(" · ")};
 }
 function openImport(){
   if(S.mode==="none"){toast("Ce navigateur ne permet pas d'enregistrer les PDF (navigation privée ?).");return}
@@ -724,7 +775,14 @@ async function upgradeImported(){
     try{const b=await pdfBytes(A);const rep=await exclusive(()=>checkClean(b));const d=rep.A;if(!d.nq||rep.errs.length){A.broken=1;continue}
       const shape=x=>x.cases.map(c=>c.qs.length).join(",");
       const same=A.data&&A.data.cases&&shape(A.data)===shape(d);
-      if(!same)for(const k of [...S.results.keys()].filter(k=>k.startsWith("r_"+A.id+"_"))){await delDoc(k);S.results.delete(k)}
+      if(!same){
+        // questions ajoutées (zones à pointer) : chaque résultat suit sa question, retrouvée par sa position dans le PDF ; les autres sont effacés
+        const key=q=>q&&q.segs&&q.segs[0]?q.segs[0].p+":"+Math.round(q.segs[0].y0):null,nm=new Map();d.cases.forEach((cs,c)=>cs.qs.forEach((q,i)=>{const k=key(q);if(k)nm.set(k,[c,i])}));
+        const pos=new Map();((A.data&&A.data.cases)||[]).forEach((cs,c)=>cs.qs.forEach((q,i)=>pos.set(c+"_"+i,nm.get(key(q))||null)));
+        const mine=[...S.results.entries()].filter(([k])=>k.startsWith("r_"+A.id+"_")),keep=[];
+        for(const [k,r] of mine){await delDoc(k);S.results.delete(k);const to=pos.get(r.c+"_"+r.q);if(to)keep.push({...r,c:to[0],q:to[1]})}
+        for(const r of keep){const k=qKey(A.id,r.c,r.q);S.results.set(k,r);await putDoc(k,r)}
+        if(S.playSaved&&(S.playSaved.items||[]).some(it=>it.a===A.id))clearPlay()}
       A.data=d;A.nq=d.nq;if(!A.hash)A.hash=await sha1(b);if(!A.date)A.date=guessDate(A.session||A.name);if(!A.exam)A.exam=guessExam(A.name||"");
       await putDoc(A.id,A);n++;
     }catch(e){}
