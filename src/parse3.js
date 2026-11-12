@@ -5,7 +5,7 @@
    2 « Réponse attendue » : Question N + type en toutes lettres à droite ; lettre, case ■/☑, texte ; QROC « Réponse attendue » ; TCS avec réponses des experts.
    Sortie par question : segs (zones à afficher), opts (cases cliquables), hide (zones masquées), qroc (réponses acceptées), type, k.
 */
-const PARSER_VERSION=5;
+const PARSER_VERSION=6;
 const GLYPHS="☑☐◎◉■□✓✔●○";
 const isGlyph=s=>s.length===1&&GLYPHS.includes(s);
 const CHECKED=s=>s==="☑"||s==="◉"||s==="✓"||s==="✔"||s==="●";
@@ -204,9 +204,18 @@ async function parsePdf(bytes,o){
 
 function extendSegs(cases,dropped,pages){
   // toutes les bandes, dans l'ordre, par page : chaque bande s'étend vers le bas jusqu'à la bande suivante de la même page (ou le bas du contenu)
+  // une page sans texte (image pleine page : radio, scanner…) située entre deux pages de contenu n'a aucune bande :
+  // elle appartient à la dernière bande de la page précédente (la question ou l'énoncé qui s'y poursuit)
+  const owners=[];
+  cases.forEach(cs=>{owners.push(cs.enonce);cs.qs.forEach(q=>owners.push(q.segs))});dropped.forEach(d=>owners.push(d.segs));
+  const has=new Set();owners.forEach(a=>a.forEach(s=>has.add(s.p)));
+  const pmin=Math.min(...has),pmax=Math.max(...has);
+  for(let p=pmin+1;p<pmax;p++){if(has.has(p))continue;const pg=pages[p-1];if(!(pg.pics&&pg.pics.length)&&!(pg.imgs&&pg.imgs.length))continue;
+    let q=p-1;while(q>=pmin&&!has.has(q))q--;
+    let own=null,best=-1;owners.forEach(a=>a.forEach((s,i)=>{if(s.p===q&&s.y1>best){best=s.y1;own=[a,i]}}));if(!own)continue;
+    const [a,i]=own;let j=i+1;while(j<a.length&&a[j].p<p)j++;a.splice(j,0,{p,y0:r1(pg.ctop),y1:r1(pg.bottom)})}
   const all=[];
-  cases.forEach(cs=>{cs.enonce.forEach(s=>all.push(s));cs.qs.forEach(q=>q.segs.forEach(s=>all.push(s)))});
-  dropped.forEach(d=>d.segs.forEach(s=>all.push(s)));
+  owners.forEach(a=>a.forEach(s=>all.push(s)));
   const byP=new Map();all.forEach(s=>{if(!byP.has(s.p))byP.set(s.p,[]);byP.get(s.p).push(s)});
   for(const [p,list] of byP){list.sort((a,b)=>a.y0-b.y0);const pg=pages[p-1];
     if(list.length&&list[0].y0>pg.ctop)list[0].y0=r1(pg.ctop);

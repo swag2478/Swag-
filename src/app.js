@@ -405,7 +405,7 @@ async function showQ(){
     const bar=document.createElement("div");bar.className="zbar";qc.after(bar);
     const draw=()=>{bar.innerHTML=`<span class="zh">${state.done?"Ton placement (zone attendue dessinée sur l'image)":els.length>1?"Choisis l'élément, puis touche l'image pour le placer :":"Touche l'image pour placer ton point :"}</span>${els.map((e,i)=>`<button type="button" class="zel${i===cur&&!state.done?" on":""}" data-ze="${i}" ${state.done?"disabled":""}><i style="background:${rgb(e.col)}"></i>${els.length>1?`<b>${i+1}</b> `:""}${esc(e.name)}${pts[i]?" ✓":""}</button>`).join("")}`;
       bar.querySelectorAll("[data-ze]").forEach(b=>b.onclick=()=>{cur=+b.dataset.ze;draw()});zoneMarks(qc,Q,pts,state.done)};
-    qc.querySelectorAll(".crop").forEach(w=>{w.classList.add("zone");w.onclick=e=>{if(state.done)return;const g=w._geo,R=w.getBoundingClientRect();
+    qc.querySelectorAll(".crop").forEach(w=>{w.classList.add("zone");w.onclick=e=>{if(state.done)return;const g=w._geo,R=(w.querySelector("canvas")||w).getBoundingClientRect();
       pts[cur]=[g.p,g.x0+(e.clientX-R.left)/R.width*g.cw,g.y0+(e.clientY-R.top)/R.height*g.ch];a.txt=zoneStr(pts);
       if(exam){savePlay();refreshTable()}const nx=pts.findIndex(p=>!p);if(nx>=0)cur=nx;draw()}});
     draw()}
