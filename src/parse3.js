@@ -285,29 +285,35 @@ function parseQ1(Q,pages,warn){
 // À l'affichage, l'image d'origine est repeinte par-dessus (zone effacée) ; la zone sert à corriger le point placé.
 function parseZone(Q,pages,body,hide,warn){
   const fail=m=>{warn.push("zone à pointer Q"+Q.n+" : "+m);return{type:"ZONE",opts:[],hide,qroc:null}};
-  const all=[Q.head,...Q.items];const leg=body.find(x=>/^Éléments à placer/i.test(x.s));const cnt=body.find(x=>/^Nombre de points positionn/i.test(x.s));
+  const leg=body.find(x=>/^Éléments à placer/i.test(x.s));
   if(!leg)return fail("légende introuvable");
   const p0=Q.head.p,t0=Q.head.bot;
   const inQ=(p,t,b)=>(p>p0||t>=t0-1)&&(p<leg.p||p===leg.p&&b<=leg.top+2);
   const fills=[],pics=[];for(let p=p0;p<=leg.p;p++){const pg=pages[p-1];(pg.fills||[]).forEach(f=>{if(inQ(p,f.t,f.b))fills.push({...f,p})});(pg.pics||[]).forEach(im=>{if(inQ(p,im.t,im.b))pics.push({...im,p})})}
   if(!fills.length)return fail("aucune zone dessinée");
-  // légende : un nom par ligne, avec son carré de couleur
-  // la légende peut continuer en haut de la page suivante
-  const end=cnt||null,lastP=end?end.p:leg.p+1;const after=x=>x.p>leg.p||x.top>leg.bot-1,before=x=>!end||x.p<end.p||x.p===end.p&&x.top<end.top-1;
-  const lines=body.filter(x=>after(x)&&before(x)&&x.p<=lastP&&/[\p{L}\p{N}]/u.test(x.s)&&!/^(Question|Commentaire|Réponse)/i.test(x.s));
-  const sq=[];for(let p=leg.p;p<=Math.min(lastP,pages.length);p++)(pages[p-1].squares||[]).forEach(q=>{const x={p,top:q.t,bot:q.b};if(after(x)&&before(x))sq.push({...q,p})});
+  // légende : « nom de l'élément » puis « Nombre de points positionnés: 0 », pour chaque élément (elle peut continuer page suivante)
+  const isCnt=x=>/^Nombre de points positionn/i.test(x.s),isNum=x=>/^\d+$/.test(x.s.trim());
+  const rest=body.filter(x=>x.p>leg.p||x.p===leg.p&&x.top>leg.bot-1).filter(x=>x.p<=leg.p+1);
+  const lines=[],cnts=[];for(const x of rest){if(isCnt(x)){cnts.push(x);continue}if(isNum(x)&&cnts.length&&sameLine(x,cnts[cnts.length-1]))continue;
+    if(/^(Question|Commentaire|Réponse|Référence)/i.test(x.s)||/^\d+\/\d+$/.test(x.s.trim()))break;if(!/[\p{L}\p{N}]/u.test(x.s))continue;
+    if(lines.length>cnts.length)break; // deux noms à la suite sans compteur : on sort de la légende
+    lines.push(x)}
+  const sq=[];for(let p=leg.p;p<=Math.min(leg.p+1,pages.length);p++)(pages[p-1].squares||[]).forEach(q=>{if(p>leg.p||q.t>leg.bot-2)sq.push({...q,p})});
   const near=(a,b)=>a&&b&&Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2])<30;
   const els=lines.map(x=>{const s2=sq.filter(q=>q.p===x.p&&q.r<=x.x+2&&Math.abs((q.t+q.b)/2-(x.top+x.bot)/2)<8).sort((a,b)=>b.r-a.r)[0];return{name:x.s.trim(),col:s2?s2.col:null}});
   if(!els.length)return fail("aucun élément à placer");
+  if(els.length>1&&els.some(e=>!e.col))return fail("couleur d'un élément illisible");
   const polys=fills.map(f=>({p:f.p,pts:f.pts.map(([x,y])=>[+x.toFixed(2),+y.toFixed(2)]),col:f.col}));
-  for(const e of els)e.polys=polys.filter(f=>els.length===1||near(f.col,e.col)).map(({p,pts})=>({p,pts}));
+  // chaque zone appartient à l'élément de même couleur ; une zone sans élément correspondant rend la question inutilisable
+  for(const e of els)e.polys=polys.filter(f=>e.col?near(f.col,e.col):els.length===1).map(({p,pts})=>({p,pts}));
   if(els.some(e=>!e.polys.length))return fail("zone sans élément correspondant");
+  if(polys.some(f=>!els.some(e=>e.col?near(f.col,e.col):true)))return fail("zone d'une couleur absente de la légende");
   // images à repeindre : celles qui contiennent une zone (la partie repeinte = l'emprise des zones, avec une marge)
   const clean=[];for(const f of fills){const im=pics.filter(m=>m.p===f.p&&f.l>=m.l-2&&f.r<=m.r+2&&f.t>=m.t-2&&f.b<=m.b+2).pop();
     if(!im)return fail("zone hors image");
     clean.push({p:f.p,id:im.id,m:im.m,w:im.w,h:im.h,l:Math.max(im.l,f.l-4),t:Math.max(im.t,f.t-4),r:Math.min(im.r,f.r+4),b:Math.min(im.b,f.b+4)})}
-  if(cnt)hide.push(R(cnt.p,cnt.x-2,cnt.top-2,Math.max(cnt.x+cnt.w+30,pages[cnt.p-1].w*.5),cnt.bot+2,{kind:"label"}));
-  const lastB=cnt||lines[lines.length-1]||leg;
+  cnts.forEach(c=>hide.push(R(c.p,c.x-2,c.top-2,Math.max(c.x+c.w+30,pages[c.p-1].w*.5),c.bot+2,{kind:"label"})));
+  const lastB=[...cnts,...lines].sort((a,b)=>a.p-b.p||a.bot-b.bot).pop()||leg;
   return{type:"ZONE",k:null,st:"",opts:[],hide,qroc:null,zone:{els,clean},endAt:{p:lastB.p,y:lastB.bot}};
 }
 async function parseQ2(Q,pages,warn,raster){
