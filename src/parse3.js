@@ -70,7 +70,10 @@ function coverImages(q,pages,items){
     for(const im of pg.imgs){const t=Math.max(im.t,sg.y0),b=Math.min(im.b,sg.y1);if(b-t<1)continue;
       // contact franc seulement : une image d'énoncé posée juste au-dessus d'un commentaire ne le chevauche que d'un ou deux points
       // (ou une image qui commence à l'intérieur de la zone masquée : corps d'un commentaire en image)
-      const ov=h=>{const w=Math.min(im.r,h.r)-Math.max(im.l,h.l),hh=Math.min(im.b,h.b)-Math.max(im.t,h.t);return w>4&&(hh>4&&w*hh>=0.12*(im.r-im.l)*(im.b-im.t)||im.t>=h.t-2&&im.t<h.b-1)};
+      // ou une image placée juste sous une zone masquée, sans rien de visible entre les deux (illustration d'une justification)
+      const ov=h=>{const w=Math.min(im.r,h.r)-Math.max(im.l,h.l),hh=Math.min(im.b,h.b)-Math.max(im.t,h.t);if(w<=4)return false;
+        if(hh>4&&w*hh>=0.12*(im.r-im.l)*(im.b-im.t))return true;if(im.t>=h.t-2&&im.t<h.b-1)return true;
+        return h.kind!=="label"&&im.t>=h.b-1&&im.t-h.b<30&&!visible.some(it=>it.top>=h.b-1&&it.top<im.t-1)};
       const touch=hs.some(ov)||gaps.some(g=>Math.min(b,g.b)-Math.max(t,g.t)>4);
       if(!touch)continue;
       // fond de page ou d'encadré sur lequel du texte visible est écrit : on ne le masque pas (le texte révélateur posé dessus a déjà ses caches)
