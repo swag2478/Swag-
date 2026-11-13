@@ -398,7 +398,9 @@ async function parseQ2(Q,pages,warn,raster){
     const m=cellL[0].t.match(IV)[0].replace(/[\[\]]/g,"").split(";").map(num);
     if(m.length!==2||!m.every(Number.isFinite)||m[0]>m[1]){warn.push("QVN Q"+Q.n+" : intervalle attendu incohérent");return{type:"?",opts,hide,qroc}}
     // un cache par morceau (pas toute la ligne) : la question écrite dans la même ligne du tableau reste lisible
-    const qb=cells.map(x=>R(x.p,x.x-4,x.top-2,x.x+x.w+4,x.bot+2,{kind:"qroc"}));qb.forEach(h=>hide.push(h));
+    const qb=[];for(const x of cells.slice().sort((a,b)=>a.x-b.x)){const l=qb[qb.length-1];
+      if(l&&x.x-l.r<14){l.r=r1(Math.max(l.r,x.x+x.w+4));l.t=r1(Math.min(l.t,x.top-2));l.b=r1(Math.max(l.b,x.bot+2))}else qb.push(R(x.p,x.x-4,x.top-2,x.x+x.w+4,x.bot+2,{kind:"qroc"}))}
+    qb.forEach(h=>hide.push(h));
     return{type:"QVN",k:null,st,opts,hide,qroc:{ans:[m[0]===m[1]?String(m[0]).replace(".",","):`${String(m[0]).replace(".",",")} à ${String(m[1]).replace(".",",")}`],num:m},endAt:{p:qb[qb.length-1].p,y:qb[qb.length-1].b}};
   }
   const qh=body.findIndex(x=>/^Réponses? attendues?$/.test(x.s));
