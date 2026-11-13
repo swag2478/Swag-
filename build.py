@@ -22,6 +22,7 @@ HEAD = '''<!doctype html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Swag">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script>if(window.top!==window.self){document.documentElement.innerHTML='<p style="font:16px system-ui;padding:20px">Swag ne s\u2019ouvre pas dans un cadre : <a href="'+location.href.replace(/"/g,'')+'" target="_top">ouvrir Swag</a>.</p>';throw new Error('cadre')}</script>
 <style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui}img{max-width:100%}[hidden]{display:none!important}</style>
 '''
 SW_REG = '''<script>
