@@ -190,7 +190,10 @@ async function parsePdf(bytes,o){
       if(/^(QRU|QRM|QRP|QRPL)$/.test(res.type)){
         // QCM exporté de travers par UNESS : une seule proposition, ou une proposition « Proposition 5 » / « La réponse A » sans contenu
         const optTxt=o=>{const pg=pages[o.p-1];return Q.items.filter(x=>x.p===o.p&&(x.top+x.bot)/2>=o.t-1&&(x.top+x.bot)/2<=o.b+1&&x.x>=o.l-2&&x.x<pg.w*.62&&!LETTER_RE.test(x.s)&&!isGlyph(x.s)).map(x=>x.s).join(" ").replace(/\s+/g," ").trim()};
-        const ph=res.opts.some(o=>/^(Proposition\s*\d+|La réponse [A-Z])$/i.test(optTxt(o)));
+        // une proposition de remplissage « Proposition 6 » non cochée est fréquente et sans gravité : on ne met de côté que si,
+        // en plus, il reste moins de 2 propositions avec un vrai contenu
+        const PH=/^(Proposition\s*\d+|La réponse [A-Z])$/i,tx=res.opts.map(optTxt);
+        const ph=tx.some(t=>PH.test(t))&&tx.filter(t=>t&&!PH.test(t)).length<2;
         if(res.opts.length<2||ph){warn.push(`Q${Q.n} : QCM mal exporté (${res.opts.length<2?"une seule proposition":"proposition sans contenu"}), mis de côté`);dropped.push({type:"props",n:Q.n,segs});continue}
       }
       oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),...(res.zone?{zone:res.zone}:{}),_end:res.endAt,_items:[Q.head,...Q.items]});
@@ -382,9 +385,14 @@ async function parseQ2(Q,pages,warn,raster){
   if(type==="QVN"){
     // question à valeur numérique : « Réponse attendue » puis l'intervalle accepté « [ min ; max ] » dans la colonne de droite
     const num=v=>+String(v).replace(/\s/g,"").replace(",",".");
-    const cells=body.filter(x=>x.x>W*.6&&/^\[?\s*-?[\d\s.,]+\s*;\s*-?[\d\s.,]+\s*\]?$/.test(x.s));
-    if(cells.length!==1){warn.push("QVN Q"+Q.n+" : intervalle attendu illisible");return{type:"?",opts,hide,qroc}}
-    const m=cells[0].s.replace(/[\[\]]/g,"").split(";").map(num);
+    // ligne de réponse : « [ 25 ; 25 ] » (parfois découpé en morceaux), éventuellement précédé de la valeur exacte « 25 »
+    const lines=[];
+    for(const x of body){const l=lines.find(l=>l.p===x.p&&Math.abs(l.top-x.top)<3);if(l)l.items.push(x);else lines.push({p:x.p,top:x.top,items:[x]})}
+    const IV=/\[\s*-?[\d\s.,]+;\s*-?[\d\s.,]+\]/;
+    const cellL=lines.map(l=>{const its=l.items.filter(x=>/^[\[\]\d\s.,;-]+$/.test(x.s)).sort((a,b)=>a.x-b.x);return{l,its,t:its.filter(x=>/[\[\];]/.test(x.s)||its.some(y=>/\[/.test(y.s)&&y.x<=x.x)&&its.some(y=>/\]/.test(y.s)&&y.x>=x.x)).map(x=>x.s).join(" ").replace(/\s+/g," ").trim()}}).filter(c=>IV.test(c.t));
+    if(cellL.length!==1){warn.push("QVN Q"+Q.n+" : intervalle attendu illisible ("+cellL.length+")");return{type:"?",opts,hide,qroc}}
+    const cells=cellL[0].its;   // intervalle + valeur exacte (que des chiffres) ; l'intitulé éventuel de la ligne reste visible
+    const m=cellL[0].t.match(IV)[0].replace(/[\[\]]/g,"").split(";").map(num);
     if(m.length!==2||!m.every(Number.isFinite)||m[0]>m[1]){warn.push("QVN Q"+Q.n+" : intervalle attendu incohérent");return{type:"?",opts,hide,qroc}}
     const qb=mergeBlock(cells,"qroc",W);qb.forEach(h=>hide.push(h));
     return{type:"QVN",k:null,st,opts,hide,qroc:{ans:[m[0]===m[1]?String(m[0]).replace(".",","):`${String(m[0]).replace(".",",")} à ${String(m[1]).replace(".",",")}`],num:m},endAt:{p:qb[qb.length-1].p,y:qb[qb.length-1].b}};

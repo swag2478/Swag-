@@ -27,6 +27,10 @@ function ckReveal(pages,fmt){
       if(fmt===1&&/^Auteurs/.test(s))mode=null;
       if(why)out.push({...it,why});
     }
+    // valeur numérique attendue découpée en morceaux (« [ », « 25 », « ; 25 ] ») et valeur exacte « 25 » sur la même ligne
+    const lines=[];for(const it of its){const l=lines.find(l=>Math.abs(l.top-it.top)<3);if(l)l.its.push(it);else lines.push({top:it.top,its:[it]})}
+    for(const l of lines){const num=l.its.filter(x=>/^[\[\]\d\s.,;-]+$/.test(x.s)).sort((a,b)=>a.x-b.x);
+      if(/\[\s*-?[\d\s.,]+;\s*-?[\d\s.,]+\]/.test(num.map(x=>x.s).join(" ")))for(const x of num)if(!out.some(o=>o.p===x.p&&o.x===x.x&&o.top===x.top&&o.s===x.s))out.push({...x,why:"valeur"})}
   }
   return out;
 }
