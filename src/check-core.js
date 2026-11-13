@@ -30,7 +30,10 @@ function ckReveal(pages,fmt){
     // valeur numérique attendue découpée en morceaux (« [ », « 25 », « ; 25 ] ») et valeur exacte « 25 » sur la même ligne
     const lines=[];for(const it of its){const l=lines.find(l=>Math.abs(l.top-it.top)<3);if(l)l.its.push(it);else lines.push({top:it.top,its:[it]})}
     for(const l of lines){const num=l.its.filter(x=>/^[\[\]\d\s.,;-]+$/.test(x.s)).sort((a,b)=>a.x-b.x);
-      if(/\[\s*-?[\d\s.,]+;\s*-?[\d\s.,]+\]/.test(num.map(x=>x.s).join(" ")))for(const x of num)if(!out.some(o=>o.p===x.p&&o.x===x.x&&o.top===x.top&&o.s===x.s))out.push({...x,why:"valeur"})}
+      if(!/\[\s*-?[\d\s.,]+;\s*-?[\d\s.,]+\]/.test(num.map(x=>x.s).join(" ")))continue;
+      for(const x of num)if(!out.some(o=>o.p===x.p&&o.x===x.x&&o.top===x.top&&o.s===x.s))out.push({...x,why:"valeur"});
+      // sur la ligne d'une valeur numérique, le texte avec des lettres est l'énoncé écrit dans le tableau, pas une réponse
+      for(let i=out.length-1;i>=0;i--){const o=out[i];if(o.why==="qroc2"&&o.p===pg.items[0].p&&l.its.includes(pg.items.find(y=>y.x===o.x&&y.top===o.top&&y.s===o.s))&&/\p{L}/u.test(o.s))out.splice(i,1)}}
   }
   return out;
 }
