@@ -13,7 +13,7 @@ const LABEL_RE=/^(Valide|Faux|Indispensable|Inacceptable|Acceptable|Neutre)$/i;
 const COUNT_RE=/^\(?\d+$|^\(?\d+\s*Experts?\)?$|^Experts?\)$/i;
 const LETTER_RE=/^([A-Z])\.?$/;
 const SUPPORTED=new Set(["QRU","QRM","QRP","QRPL","QROC","QVN","TCS","ZONE"]);
-function typeFromLabel(t){t=t.toLowerCase();if(/concordance/.test(t))return"TCS";if(/num[ée]rique/.test(t))return"QVN";if(/d[ée]roulant/.test(t))return"QRP";if(/zone/.test(t))return"ZONE";if(/ouverte|courte/.test(t))return"QROC";if(/longue|liste/.test(t))return"QRPL";if(/pr[ée]cis/.test(t))return"QRP";if(/unique/.test(t))return"QRU";if(/multiples|réponses/.test(t))return"QRM";return"?"}
+function typeFromLabel(t){t=t.toLowerCase();if(/concordance/.test(t))return"TCS";if(/valeurs?\s+num[ée]riques?/.test(t))return"QVN";if(/d[ée]roulant/.test(t))return"QRP";if(/zone/.test(t))return"ZONE";if(/ouverte|courte/.test(t))return"QROC";if(/longue|liste/.test(t))return"QRPL";if(/pr[ée]cis/.test(t))return"QRP";if(/unique/.test(t))return"QRU";if(/multiples|réponses/.test(t))return"QRM";return"?"}
 function normType(t){t=(t||"").toUpperCase();if(t==="QTCS"||t==="TCS")return"TCS";if(t==="QZONE")return"ZONE";return t}
 
 async function readPages(bytes){
@@ -188,12 +188,10 @@ async function parsePdf(bytes,o){
       const res=fmt===1?parseQ1(Q,pages,warn):await parseQ2(Q,pages,warn,raster);
       if(!SUPPORTED.has(res.type)||(!res.opts.length&&!res.qroc&&!res.zone)){dropped.push({type:res.type||Q.type,n:Q.n,segs});continue}
       if(/^(QRU|QRM|QRP|QRPL)$/.test(res.type)){
-        // QCM exporté de travers par UNESS (une seule proposition, propositions vides ou « Proposition 5 ») : mis de côté
-        const realOpts=res.opts.filter(o=>{const pg=pages[o.p-1];
-          const txt=Q.items.filter(x=>x.p===o.p&&(x.top+x.bot)/2>=o.t-1&&(x.top+x.bot)/2<=o.b+1&&x.x>=o.l-2&&x.x<pg.w*.62&&!LETTER_RE.test(x.s)&&!isGlyph(x.s)&&!/^(Valide|Faux|Indispensable|Inacceptable|Acceptable|Neutre)$/.test(x.s)).map(x=>x.s).join(" ").trim();
-          const pic=(pg.pics||[]).some(im=>im.l<o.r+pg.w*.5&&im.r>o.l&&im.t<o.b&&im.b>o.t);
-          return pic||(/[\p{L}\p{N}]/u.test(txt)&&!/^(Proposition\s*\d+|La réponse [A-Z])$/i.test(txt))});
-        if(realOpts.length<2){warn.push(`Q${Q.n} : moins de 2 vraies propositions (QCM mal exporté), mise de côté`);dropped.push({type:"props",n:Q.n,segs});continue}
+        // QCM exporté de travers par UNESS : une seule proposition, ou une proposition « Proposition 5 » / « La réponse A » sans contenu
+        const optTxt=o=>{const pg=pages[o.p-1];return Q.items.filter(x=>x.p===o.p&&(x.top+x.bot)/2>=o.t-1&&(x.top+x.bot)/2<=o.b+1&&x.x>=o.l-2&&x.x<pg.w*.62&&!LETTER_RE.test(x.s)&&!isGlyph(x.s)).map(x=>x.s).join(" ").replace(/\s+/g," ").trim()};
+        const ph=res.opts.some(o=>/^(Proposition\s*\d+|La réponse [A-Z])$/i.test(optTxt(o)));
+        if(res.opts.length<2||ph){warn.push(`Q${Q.n} : QCM mal exporté (${res.opts.length<2?"une seule proposition":"proposition sans contenu"}), mis de côté`);dropped.push({type:"props",n:Q.n,segs});continue}
       }
       oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),...(res.zone?{zone:res.zone}:{}),_end:res.endAt,_items:[Q.head,...Q.items]});
     }
@@ -383,9 +381,8 @@ async function parseQ2(Q,pages,warn,raster){
   if(type==="ZONE")return parseZone(Q,pages,body,hide,warn);
   if(type==="QVN"){
     // question à valeur numérique : « Réponse attendue » puis l'intervalle accepté « [ min ; max ] » dans la colonne de droite
-    const qh2=body.findIndex(x=>/^Réponses? attendues?$/.test(x.s));
     const num=v=>+String(v).replace(/\s/g,"").replace(",",".");
-    const cells=qh2<0?[]:body.slice(qh2+1).filter(x=>x.x>W*.6&&/^\[?\s*-?[\d\s.,]+\s*;\s*-?[\d\s.,]+\s*\]?$/.test(x.s));
+    const cells=body.filter(x=>x.x>W*.6&&/^\[?\s*-?[\d\s.,]+\s*;\s*-?[\d\s.,]+\s*\]?$/.test(x.s));
     if(cells.length!==1){warn.push("QVN Q"+Q.n+" : intervalle attendu illisible");return{type:"?",opts,hide,qroc}}
     const m=cells[0].s.replace(/[\[\]]/g,"").split(";").map(num);
     if(m.length!==2||!m.every(Number.isFinite)||m[0]>m[1]){warn.push("QVN Q"+Q.n+" : intervalle attendu incohérent");return{type:"?",opts,hide,qroc}}

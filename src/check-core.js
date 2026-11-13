@@ -48,7 +48,10 @@ async function evalA(A,pages,rev,bytes,opt){
   A.cases.forEach((cs,ci)=>{cs.enonce.forEach(s=>shown.push({s,rects:[],tag:`D${ci+1} énoncé`}));
     cs.qs.forEach((q,qi)=>{const rects=[...q.opts,...q.hide];q.segs.forEach(s=>shown.push({s,rects:rects.filter(r=>r.p===s.p),tag:`D${ci+1} Q${qi+1} ${q.type}`,q,ci,qi}))})});
   const X0=p=>{const g=A.pages[p-1];return g.x0!=null?Math.min(g.x0,g.w*.044):g.w*.044},X1=p=>{const g=A.pages[p-1];return g.x1!=null?Math.max(g.x1,g.w*.956):g.w*.956};
-  for(const it of rev){const cy=(it.top+it.bot)/2;
+  // TCS d'utilité : l'intitulé de ligne « Indispensable » est une proposition, pas une mention de correction
+  const tcsLabel=it=>it.why==="mention"&&shown.some(z=>z.q&&z.q.type==="TCS"&&z.s.p===it.p&&(it.top+it.bot)/2>=z.s.y0&&(it.top+it.bot)/2<=z.s.y1&&
+    z.q.opts.some(o=>o.p===it.p&&(it.top+it.bot)/2>=o.t-1&&(it.top+it.bot)/2<=o.b+1)&&z.q.hide.some(h=>h.kind==="just"&&h.p===it.p&&it.x+it.w<=h.l+2));
+  for(const it of rev){const cy=(it.top+it.bot)/2;if(tcsLabel(it))continue;
     for(const z of shown){if(z.s.p!==it.p||cy<z.s.y0||cy>z.s.y1)continue;if(it.x+it.w<X0(it.p)||it.x>X1(it.p))continue;
       const rects=z.rects.map(r=>({l:r.l,r:r.r,t:Math.max(r.t,z.s.y0),b:Math.min(r.b,z.s.y1)}));const vis={...it,top:Math.max(it.top,z.s.y0-1),bot:Math.min(it.bot,z.s.y1+1)};const c=vis.bot-vis.top<2.5?1:ckCovered(vis,rects);
       if(c<1)errs.push({m:`${z.tag} p${it.p} visible (${it.why}, ${Math.round(c*100)}% caché) : « ${it.s.slice(0,50)} »`,q:z.q?[z.ci,z.qi]:null})}}
@@ -70,7 +73,7 @@ async function evalA(A,pages,rev,bytes,opt){
     const Ls=q.opts.map(o=>o.L).join(""),exp="ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(0,q.opts.length);if(Ls!==exp)errs.push({m:`${tag} : lettres ${Ls}`,q:Q})}));
   if(opt.vierge){const masks=[];A.cases.forEach(cs=>cs.qs.forEach(q=>[...q.opts,...q.hide].forEach(r=>masks.push(r))));
     A.dropped.forEach(d=>d.segs.forEach(s=>masks.push({p:s.p,l:0,r:A.pages[s.p-1].w,t:s.y0,b:s.y1})));
-    for(const it of rev){const c=ckCovered(it,masks.filter(r=>r.p===it.p));if(c<1&&!shown.some(z=>z.s.p===it.p&&(it.top+it.bot)/2>=z.s.y0&&(it.top+it.bot)/2<=z.s.y1&&!z.q)){
+    for(const it of rev){if(tcsLabel(it))continue;const c=ckCovered(it,masks.filter(r=>r.p===it.p));if(c<1&&!shown.some(z=>z.s.p===it.p&&(it.top+it.bot)/2>=z.s.y0&&(it.top+it.bot)/2<=z.s.y1&&!z.q)){
       const z=shown.find(z=>z.q&&z.s.p===it.p&&(it.top+it.bot)/2>=z.s.y0-2&&(it.top+it.bot)/2<=z.s.y1+40);
       errs.push({m:`VIERGE p${it.p} visible (${it.why}) : « ${it.s.slice(0,50)} »`,q:null})}}}
   return{errs,warns};
