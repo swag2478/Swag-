@@ -5,7 +5,7 @@
    2 « Réponse attendue » : Question N + type en toutes lettres à droite ; lettre, case ■/☑, texte ; QROC « Réponse attendue » ; TCS avec réponses des experts.
    Sortie par question : segs (zones à afficher), opts (cases cliquables), hide (zones masquées), qroc (réponses acceptées), type, k.
 */
-const PARSER_VERSION=6;
+const PARSER_VERSION=7;
 const GLYPHS="☑☐◎◉■□✓✔●○";
 const isGlyph=s=>s.length===1&&GLYPHS.includes(s);
 const CHECKED=s=>s==="☑"||s==="◉"||s==="✓"||s==="✔"||s==="●";
@@ -290,6 +290,36 @@ function parseQ1(Q,pages,warn){
   return{type,k:k?+k:null,st,opts,hide,qroc,endAt:typeof endAt!=="undefined"?endAt:null};
 }
 
+// TCS « Réponse attendue » aux intitulés libres (« Peu contributif », « Plus probable »…) :
+// les lignes sont données par les effectifs du panel (« 21 / 24 », « 0 / ») dans la colonne des experts.
+// Contrôles stricts (5 lignes, même dénominateur, somme = panel) ; sinon la question est mise de côté.
+function parseTCS2(Q,body,hdr,W,opts,hide,qroc,st,warn){
+  const fail=m=>{warn.push("TCS Q"+Q.n+" : "+m);return{type:"?",opts,hide,qroc}};
+  const key=x=>x.p*1e5+x.top;
+  const after=body.filter(x=>key(x)>key(hdr)+hdr.bot-hdr.top-1);
+  const counts=after.filter(x=>x.x>=hdr.x-8&&x.x<W*.96&&/^\d+\s*\/\s*\d*$/.test(x.s)&&x.h<10).sort((a,b)=>key(a)-key(b));
+  if(!counts.length)return fail("réponses des experts absentes du corrigé");
+  if(counts.length!==5)return fail(counts.length+" lignes d'experts au lieu de 5");
+  const den=counts.map(x=>x.s.match(/\/\s*(\d+)/)).filter(Boolean).map(m=>+m[1]);
+  const num=counts.map(x=>+x.s.match(/\d+/)[0]);
+  if(!den.length||den.some(v=>v!==den[0]))return fail("dénominateurs différents");
+  if(num.reduce((a,b)=>a+b,0)!==den[0])return fail("somme des experts ≠ panel");
+  // intitulés : colonne de gauche, rattachés à la dernière ligne d'experts commencée au-dessus
+  const left=after.filter(x=>x.x<hdr.x-6&&x.x>W*.03&&x.h>=10);
+  const rows=counts.map(c=>({c,items:[]}));
+  for(const x of left){let r=null;for(const R0 of rows)if(key(R0.c)<=key(x)+8)r=R0;if(r&&x.p===r.c.p&&x.top-r.c.top<60)r.items.push(x)}
+  if(rows.some(r=>!r.items.length))return fail("intitulé de ligne introuvable");
+  const lastBot=Math.max(...rows.map(r=>Math.max(r.c.bot,...r.items.map(x=>x.bot))));
+  const pages=[...new Set(counts.map(c=>c.p))];
+  for(const pp of pages){const rr=rows.filter(r=>r.c.p===pp);const top=pp===hdr.p?hdr.bot+2:Math.min(...rr.map(r=>r.c.top))-6;
+    const bot=Math.max(...rr.map(r=>Math.max(r.c.bot,...r.items.map(x=>x.bot))))+8;
+    hide.push(R(pp,hdr.x-8,top,W*.955,bot,{kind:"just"}))}
+  rows.forEach((r,i)=>{const t=Math.min(r.c.top,...r.items.map(x=>x.top)),b=Math.max(...r.items.map(x=>x.bot));
+    opts.push(R(r.c.p,W*.044,t-3,Math.min(hdr.x-8,Math.max(...r.items.map(x=>x.x+x.w))+3),b+3,{L:String.fromCharCode(65+i),v:num[i]>0?1:0,ex:num[i],nl:1}))});
+  const hh=hide[hide.length-1];
+  return{type:"TCS",k:null,st,opts,hide,qroc,endAt:{p:hh.p,y:Math.max(hh.b,lastBot)}};
+}
+
 // zone à pointer (corrigés « Réponse attendue ») : la zone attendue est un aplat semi-transparent dessiné sur l'image.
 // À l'affichage, l'image d'origine est repeinte par-dessus (zone effacée) ; la zone sert à corriger le point placé.
 function parseZone(Q,pages,body,hide,warn){
@@ -358,6 +388,7 @@ async function parseQ2(Q,pages,warn,raster){
   if(type==="TCS"){
     const hdr=body.find(x=>/^Réponses des experts/.test(x.s));
     const labels=body.filter(x=>x.x<W*.3&&/^(Totalement négatif|Négatif|Ni plus ni moins|Positif|Très|Totalement positif|Très négatif|Très positif)$/.test(x.s));
+    if(hdr&&labels.length<3)return parseTCS2(Q,body,hdr,W,opts,hide,qroc,st,warn);
     if(!hdr||labels.length<3)return{type:"?",opts,hide,qroc};
     const counts=body.filter(x=>x.x>=hdr.x-8&&x.top>hdr.bot&&/^\d+\s*\/?\s*\d*$/.test(x.s)&&x.h<10);
     const rows=labels.map((lb,i)=>({lb,i,n:0}));
