@@ -315,7 +315,7 @@ function parseTCS2(Q,body,hdr,W,opts,hide,qroc,st,warn){
     const bot=Math.max(...rr.map(r=>Math.max(r.c.bot,...r.items.map(x=>x.bot))))+8;
     hide.push(R(pp,hdr.x-8,top,W*.955,bot,{kind:"just"}))}
   rows.forEach((r,i)=>{const t=Math.min(r.c.top,...r.items.map(x=>x.top)),b=Math.max(...r.items.map(x=>x.bot));
-    opts.push(R(r.c.p,W*.044,t-3,Math.min(hdr.x-8,Math.max(...r.items.map(x=>x.x+x.w))+3),b+3,{L:String.fromCharCode(65+i),v:num[i]>0?1:0,ex:num[i],nl:1}))});
+    opts.push(R(r.c.p,W*.044,t-3,Math.max(W*.044+6,Math.min(...r.items.map(x=>x.x))-1.5),b+3,{L:String.fromCharCode(65+i),v:num[i]>0?1:0,ex:num[i],nl:1}))});
   const hh=hide[hide.length-1];
   return{type:"TCS",k:null,st,opts,hide,qroc,endAt:{p:hh.p,y:Math.max(hh.b,lastBot)}};
 }
