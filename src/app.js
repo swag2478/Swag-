@@ -50,6 +50,7 @@ function scoreQ(Q,sel,txt){
   const st=S.settings;
   if(Q.zone){const pts=zoneGet(txt),ok=zoneOk(Q,pts),n=ok.filter(Boolean).length,N=ok.length;if(!pts.some(Boolean))return{s:0,d:"Aucun point placé"};
     return{s:n/N,d:N>1?`${n} élément${n>1?"s":""} bien placé${n>1?"s":""} sur ${N}`:(n?"Point dans la zone attendue":"Point hors de la zone attendue")}}
+  if(Q.qroc&&Q.qroc.num){const t=String(txt||"").replace(/\s/g,"").replace(",",".");const x=/^[-+]?\d+(\.\d+)?$/.test(t)?+t:NaN;if(!Number.isFinite(x))return{s:0,d:t?"Ce n'est pas un nombre":"Aucune réponse"};const ok=x>=Q.qroc.num[0]&&x<=Q.qroc.num[1];return{s:ok?1:0,d:ok?"Valeur dans l'intervalle attendu":"Valeur hors de l'intervalle attendu"}}
   if(Q.qroc){const ok=!!norm(txt)&&Q.qroc.ans.some(a=>norm(a)===norm(txt));return{s:ok?1:0,d:ok?"Réponse acceptée":"Réponse non reconnue"}}
   if(Q.type==="TCS"){const mx=Math.max(1,...Q.opts.map(o=>o.ex||0));if(!sel.size)return{s:0,d:"Aucune réponse"};const i=[...sel][0],e=Q.opts[i].ex||0;return{s:e/mx,d:`${pl(e,"expert")} sur ${Q.opts.reduce((s,o)=>s+(o.ex||0),0)} ont choisi cette réponse`}}
   const disc=Q.opts.filter((o,i)=>!!o.v!==sel.has(i)).length;
@@ -122,7 +123,7 @@ async function pdfBytes(A){
 }
 const docCache=new Map(),pageCache=new Map();
 const PDFJS=window.pdfjsLib;
-function pdfDoc(A){if(!docCache.has(A.id)){const p=pdfBytes(A).then(b=>PDFJS.getDocument({data:b.slice()}).promise);p.catch(()=>docCache.delete(A.id));docCache.set(A.id,p)}return docCache.get(A.id)}
+function pdfDoc(A){if(!docCache.has(A.id)){const p=pdfBytes(A).then(b=>PDFJS.getDocument({isEvalSupported:false,data:b.slice()}).promise);p.catch(()=>docCache.delete(A.id));docCache.set(A.id,p)}return docCache.get(A.id)}
 // zones à pointer : régions d'image à repeindre sur cette page (l'image d'origine recouvre la zone dessinée)
 const zoneClean=(A,p)=>((A.data&&A.data.cases)||[]).flatMap(cs=>cs.qs.flatMap(q=>q.zone?q.zone.clean.filter(c=>c.p===p):[]));
 function imgSource(o){
@@ -341,7 +342,7 @@ function zoneMarks(box,Q,pts,done){box.querySelectorAll(".zpt").forEach(x=>x.rem
     const m=document.createElement("span");m.className="zpt"+(done?(ok[i]?" ok":" ko"):"");m.style.left=(p[1]-g.x0)/g.cw*100+"%";m.style.top=(p[2]-g.y0)/g.ch*100+"%";
     m.style.setProperty("--zc",rgb(Q.zone.els[i].col));m.textContent=Q.zone.els.length>1?String(i+1):"";m.title=Q.zone.els[i].name;w.appendChild(m)})})}
 function resultHTML(Q,r,txt,showOverride){
-  const ans=Q.qroc?`<div class="ans">${txt!=null?`Ta réponse : <b>${esc(txt||"(vide)")}</b> · `:""}Réponses acceptées : <b>${Q.qroc.ans.map(esc).join(" · ")}</b></div>`:"";
+  const ans=Q.qroc?`<div class="ans">${txt!=null?`Ta réponse : <b>${esc(txt||"(vide)")}</b> · `:""}${Q.qroc.num?"Réponse attendue":"Réponses acceptées"} : <b>${Q.qroc.ans.map(esc).join(" · ")}</b></div>`:"";
   return`<div class="result ${cls(r.s)}"><div class="pts">${fr(r.s,2)}<small style="font-size:.5em;color:var(--muted)"> / 1</small></div><div class="why">${esc(r.d)}</div>${showOverride&&Q.qroc&&r.s<1?`<button class="btn small" type="button" data-ovr>Compter juste</button>`:""}${ans}</div>`;
 }
 const hasOfficial=Q=>(Q.hide||[]).some(h=>h.kind==="just"||h.kind==="comment");
@@ -377,7 +378,7 @@ async function showQ(){
    ${A.note&&A.note.c===it.c&&A.note.q===it.q?`<div class="resume" style="background:var(--raise)"><div><b>Erratum discuté.</b> ${esc(A.note.text)}</div></div>`:""}
    ${C.enonce.length?`<details class="enonce" ${newCase?"open":""}><summary>Énoncé du dossier</summary><div class="crops" id="en"></div></details>`:""}
    <div class="crops" id="qc"></div>
-   ${Q.qroc?`<div class="qroc"><input type="text" id="qin" placeholder="Ta réponse" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Ta réponse" value="${esc(a.txt||"")}"></div>`:""}
+   ${Q.qroc?`<div class="qroc"><input type="text" id="qin" ${Q.qroc.num?'inputmode="decimal" placeholder="Ta réponse (un nombre)"':'placeholder="Ta réponse"'} autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Ta réponse" value="${esc(a.txt||"")}"></div>`:""}
    <div id="res"></div>
    <div class="kbd">Clavier : lettres pour cocher, Entrée pour valider, flèches ← → pour changer de question.</div>
   </div><aside class="qtable side">${exam?`<div class="chrono big" id="chrono2"></div>`:`<div class="qt-score">Série : <b>${fr(pts,2)}</b> / ${doneN}</div>`}${qtableHTML()}</aside></div>`;
@@ -474,7 +475,7 @@ function vCarnet(v){
   const lim=V.errPer==="tout"?-1:today()-(+V.errPer);
   let list=resOf(all).filter(r=>r.err&&r.err[0]>0&&(V.errOnly?r.last<1:true)&&(!V.errUE||ueOf(S.annales.get(r.a))===V.errUE)&&(lim<0||r.err[1]>=lim));
   list.sort((x,y)=>y.err[1]-x.err[1]||y.at-x.at);
-  const segB=(k,opts,val)=>`<div class="seg wrap" role="group">${opts.map(([x,t])=>`<button type="button" data-${k}="${esc(x)}" aria-pressed="${String(val)===String(x)}">${t}</button>`).join("")}</div>`;
+  const segB=(k,opts,val)=>`<div class="seg wrap" role="group">${opts.map(([x,t])=>`<button type="button" data-${k}="${esc(x)}" aria-pressed="${String(val)===String(x)}">${esc(t)}</button>`).join("")}</div>`;
   v.innerHTML=`<div class="page" style="max-width:960px"><div class="head"><div><h2>Carnet d'erreurs</h2><p>Chaque question ratée, avec la capture de l'annale, ta réponse et la correction officielle.</p></div>
    ${list.length?`<button class="btn red" type="button" id="redoAll">Refaire ces questions (${list.length})</button>`:""}</div>
    <section class="panel"><div class="row2"><span class="lbl">UE</span>${segB("eu",[["","Toutes"],...ues.map(u=>[u,u])],V.errUE)}</div>
@@ -546,7 +547,7 @@ function vReglages(v){
   v.innerHTML=`<div class="page" style="max-width:860px"><div class="head"><div><h2>Réglages</h2></div></div>
    ${installHTML(true)}
    <section class="panel"><h3>Apparence</h3><div class="seg" role="group" aria-label="Thème">${[["auto","Auto"],["light","Clair"],["dark","Sombre"]].map(([k,t])=>`<button type="button" data-th="${k}" aria-pressed="${th===k}">${t}</button>`).join("")}</div></section>
-   <section class="panel"><h3>Barème</h3><p style="margin:0;color:var(--muted)">QRM : points selon le nombre de discordances (case cochée à tort ou oubliée). QRU : tout ou rien. QRP et QRPL : une proposition inacceptable cochée ou une indispensable oubliée donne 0, trop de cases cochées aussi. TCS : selon la part d'experts ayant choisi ta réponse. Zone à pointer : 1 point si ton point est dans la zone attendue (avec plusieurs éléments à placer, au prorata des éléments bien placés).</p>
+   <section class="panel"><h3>Barème</h3><p style="margin:0;color:var(--muted)">QRM : points selon le nombre de discordances (case cochée à tort ou oubliée). QRU : tout ou rien. QRP et QRPL : une proposition inacceptable cochée ou une indispensable oubliée donne 0, trop de cases cochées aussi. TCS : selon la part d'experts ayant choisi ta réponse. Valeur numérique (QVN) : 1 point si ton nombre est dans l'intervalle du corrigé. Zone à pointer : 1 point si ton point est dans la zone attendue (avec plusieurs éléments à placer, au prorata des éléments bien placés).</p>
     <div class="set"><label class="field"><span>1 discordance</span>${sel("b1",[[.5,"0,5"],[.4,"0,4"],[.3,"0,3"],[.2,"0,2"],[0,"0"]],st.b1)}</label>
     <label class="field"><span>2 discordances</span>${sel("b2",[[.2,"0,2"],[.1,"0,1"],[0,"0"]],st.b2)}</label>
     <label class="field"><span>QRP et QRPL</span>${sel("qrpl",[["prorata","Au prorata des bonnes réponses"],["strict","Tout ou rien"]],st.qrpl)}</label></div></section>
@@ -556,7 +557,9 @@ function vReglages(v){
     <p style="margin:0;color:var(--muted)">La sauvegarde contient tes résultats, tes séries, tes réglages et la liste de tes annales (UE, épreuve, date), sans les PDF. Pour la restaurer sur un autre appareil, restaure le fichier puis réimporte les mêmes PDF.</p>
     ${pend.length?`<p style="margin:0" id="pendList"><b>${pl(pend.length,"annale attend","annales attendent")} son PDF :</b> ${pend.map(x=>esc((x.ue||UE_TODO)+" · "+([x.exam,sessionLabel(x.date)].filter(Boolean).join(" ")||x.name))).join(" ; ")}</p>`:""}
     <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" type="button" id="bkSave">Sauvegarder ma progression</button><label class="btn" for="bkFile" id="bkLoad">Restaurer ma progression</label><input type="file" id="bkFile" accept="application/json,.json" class="vh">
-     <button class="btn" type="button" id="reset" style="color:var(--red)">Réinitialiser ma progression</button></div></section>
+     <button class="btn" type="button" id="reset" style="color:var(--red)">Réinitialiser ma progression</button></div>
+    <p style="margin:0;color:var(--muted)">Sur un ordinateur partagé (BU, salle informatique) : « Effacer Swag de cet appareil » supprime tes PDF, ta progression et ta connexion de ce navigateur. Sauvegarde ta progression avant si tu veux la garder.</p>
+    <div><button class="btn" type="button" id="wipe" style="color:var(--red)">Effacer Swag de cet appareil</button></div></section>
    ${typeof authPanelHTML==="function"?authPanelHTML():""}
    <section class="panel"><h3>Confidentialité</h3><p style="margin:0;color:var(--muted)">Swag est gratuit et ne contient aucune annale : tu importes tes propres corrigés, qui sont lus et gardés sur ton appareil. Le code du site est public. L'accès est réservé aux membres (adresse e-mail sur la liste), mais ce contrôle se fait dans ton navigateur : il sert à réserver le site, pas à protéger des données secrètes. Seule ton adresse e-mail sert à la connexion.</p></section>
   </div>`;
@@ -564,6 +567,15 @@ function vReglages(v){
   ["b1","b2","nDos","tQ"].forEach(k=>$("#"+k).onchange=e=>saveSettings({[k]:+e.target.value}));
   $("#qrpl").onchange=e=>saveSettings({qrpl:e.target.value});
   $("#bkSave").onclick=()=>saveBackup();
+  let wArmed=false;$("#wipe").onclick=async()=>{const b=$("#wipe");if(!wArmed){wArmed=true;b.textContent="Confirmer : tout effacer de cet appareil";b.classList.add("red");b.style.color="";return}
+    b.disabled=true;b.textContent="Effacement…";
+    try{if(typeof sb!=="undefined"&&sb)await sb.auth.signOut({scope:"local"})}catch(e){}
+    try{if(idbP){(await idbP).close();idbP=null}}catch(e){}
+    try{await new Promise(r=>{const q=indexedDB.deleteDatabase("swag");q.onsuccess=q.onerror=q.onblocked=()=>r()})}catch(e){}
+    try{localStorage.clear();sessionStorage.clear()}catch(e){}
+    try{for(const k of await caches.keys())await caches.delete(k)}catch(e){}
+    try{for(const r of await navigator.serviceWorker.getRegistrations())await r.unregister()}catch(e){}
+    location.replace(location.pathname)};
   $("#bkFile").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(f)await restoreBackup(f)};
   if(typeof wireAuthPanel==="function")wireAuthPanel(v);
   let armed=false;$("#reset").onclick=async()=>{const b=$("#reset");if(!armed){armed=true;b.textContent="Confirmer : effacer notes, séries et carnet";b.classList.add("red");b.style.color="";return}
@@ -581,9 +593,24 @@ async function saveBackup(){
   const d=new Date(),stamp=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
   await saveFile("Swag - sauvegarde "+stamp+".json",JSON.stringify(backupData()),"application/json");
 }
+// une sauvegarde peut venir de quelqu'un d'autre : on ne garde que des champs attendus, du bon type
+function cleanBackup(B){
+  const id=v=>typeof v==="string"&&/^[\w-]{1,80}$/.test(v)?v:null,int=v=>Number.isInteger(v)&&v>=0&&v<1e5?v:null,num=v=>typeof v==="number"&&isFinite(v)?v:0;
+  const str=(v,n)=>typeof v==="string"?v.slice(0,n||200):"",day=v=>typeof v==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(v)?v:"";
+  const annales=(Array.isArray(B.annales)?B.annales:[]).map(m=>m&&id(m.id)?{id:m.id,hash:id(m.hash)||"",name:str(m.name),ue:str(m.ue,80),exam:str(m.exam,80),date:str(m.date,20),nq:int(m.nq)||0}:null).filter(Boolean);
+  const results=B.results.map(r=>{if(!r||r.kind!=="result"||!id(r.a)||int(r.c)==null||int(r.q)==null)return null;
+    return{kind:"result",a:r.a,c:r.c,q:r.q,last:Math.max(0,Math.min(1,num(r.last))),best:Math.max(0,Math.min(1,num(r.best))),tries:int(r.tries)||1,at:num(r.at),
+      sel:(Array.isArray(r.sel)?r.sel:[]).filter(x=>int(x)!=null&&x<30),txt:str(r.txt,500),
+      hist:(Array.isArray(r.hist)?r.hist:[]).filter(h=>Array.isArray(h)&&day(h[0])).map(h=>[h[0],Math.max(0,Math.min(1,num(h[1])))]).slice(-20),
+      err:Array.isArray(r.err)?[int(r.err[0])||0,day(r.err[1])||0]:[0,0]}}).filter(Boolean);
+  const series=(Array.isArray(B.series)?B.series:[]).map(x=>x&&x.kind==="serie"?{kind:"serie",key:id(x.key)||undefined,title:str(x.title,120),mode:str(x.mode,20),at:num(x.at),n:int(x.n)||0,pts:num(x.pts),dur:int(x.dur)||0}:null).filter(Boolean);
+  const settings={};if(B.settings&&typeof B.settings==="object")for(const k of Object.keys(DEF)){const v=B.settings[k];if(typeof v===typeof DEF[k]&&(typeof v!=="number"||isFinite(v)))settings[k]=typeof v==="string"?v.slice(0,40):v}
+  return{app:"swag",annales,results,series,settings,theme:B.theme==="dark"||B.theme==="light"||B.theme==="auto"?B.theme:undefined};
+}
 async function restoreBackup(file){
   let B;try{B=JSON.parse(await file.text())}catch(e){toast("Ce fichier n'est pas une sauvegarde Swag.");return}
   if(!B||B.app!=="swag"||!Array.isArray(B.results)){toast("Ce fichier n'est pas une sauvegarde Swag.");return}
+  B=cleanBackup(B);
   const byHash=new Map([...S.annales.values()].filter(A=>A.hash).map(A=>[A.hash,A]));const map=new Map();let nPend=0,nRes=0,nSer=0;
   try{
     for(const m of B.annales||[]){if(!m||!m.id)continue;const A=m.hash&&byHash.get(m.hash);
@@ -604,7 +631,7 @@ function modal(html,o){o=o||{};const m=document.createElement("div");m.className
 const ueDatalist=()=>`<datalist id="uel">${UE_LIST.map(u=>`<option value="${esc(u)}">`).join("")}</datalist>`;
 /* ---------- import en masse ---------- */
 async function firstPageText(bytes){ // titre du document + lignes en gros caractères (ou « Référence ») du haut de la 1re page
-  let task=null;try{task=PDFJS.getDocument({data:bytes.slice()});const doc=await task.promise;const out=[];
+  let task=null;try{task=PDFJS.getDocument({isEvalSupported:false,data:bytes.slice()});const doc=await task.promise;const out=[];
     try{const md=await doc.getMetadata();if(md&&md.info&&md.info.Title)out.push(md.info.Title)}catch(e){}
     const page=await doc.getPage(1),vp=page.getViewport({scale:1});const tc=await page.getTextContent();
     const its=tc.items.filter(it=>it.str&&it.str.trim()).map(it=>{const t=PDFJS.Util.transform(vp.transform,it.transform);return{s:it.str.trim(),y:t[5],h:it.height||Math.hypot(t[2],t[3])}}).filter(it=>it.y<vp.height*.5).sort((a,b)=>a.y-b.y);

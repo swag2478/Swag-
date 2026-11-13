@@ -38,6 +38,18 @@ def build():
             + js('meta.js') + js('parse3.js') + js('check-core.js') + js('app.js') + js('auth.js') + SW_REG
             + '</body></html>\n')
     assert 'window.claude' not in html and 'CATALOG' not in html, 'reste de la version artefact'
+    # politique de sécurité du contenu : seuls les scripts de ce fichier (empreintes) et des deux CDN figés s'exécutent ;
+    # un texte piégé (nom de fichier, sauvegarde, PDF) ne peut donc pas lancer de script même s'il échappait à l'échappement
+    import re, base64
+    hashes = ["'sha256-%s'" % base64.b64encode(hashlib.sha256(m.encode('utf8')).digest()).decode()
+              for m in re.findall(r'<script>(.*?)</script>', html, re.S)]
+    sb = re.search(r'supabaseUrl:\s*"(https://[^"]+)"', s('config.js'))
+    sb = sb.group(1) if sb else ''
+    csp = ("default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net " + ' '.join(hashes)
+           + "; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com"
+           + "; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://fonts.googleapis.com https://fonts.gstatic.com"
+           + ' https://*.supabase.co' + (' ' + sb if sb and not sb.endswith('.supabase.co') else '') + "; object-src 'none'; base-uri 'none'; form-action 'none'")
+    html = html.replace('<meta charset="utf-8">', '<meta charset="utf-8">\n<meta http-equiv="Content-Security-Policy" content="%s">' % csp, 1)
     open(os.path.join(DIST, 'index.html'), 'w', encoding='utf8').write(html)
     for f in ['config.js', 'manifest.webmanifest', '_headers']:
         shutil.copyfile(os.path.join(SRC, f), os.path.join(DIST, f))

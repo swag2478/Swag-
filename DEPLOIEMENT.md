@@ -13,6 +13,7 @@ Seule l'adresse e-mail passe par Supabase, pour la connexion et la liste des mem
 
 1. Crée un projet sur supabase.com. Choisis un **nom neutre** (par exemple « swag »), sans ton pseudo.
 2. **SQL Editor** → nouvelle requête → colle le contenu de `supabase/setup.sql` → *Run*.
+   Puis, dans une autre requête, colle `supabase/securite.sql` → *Run* : Supabase refusera alors d'envoyer un e-mail de connexion à une adresse qui n'est pas membre.
 3. Dans une **autre** requête, ajoute ta propre adresse comme administrateur (elle n'est écrite nulle part dans le dépôt) :
    ```sql
    insert into public.members(email, role) values ('ton.adresse@exemple.fr', 'admin');

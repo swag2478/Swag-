@@ -5,19 +5,19 @@
    2 « Réponse attendue » : Question N + type en toutes lettres à droite ; lettre, case ■/☑, texte ; QROC « Réponse attendue » ; TCS avec réponses des experts.
    Sortie par question : segs (zones à afficher), opts (cases cliquables), hide (zones masquées), qroc (réponses acceptées), type, k.
 */
-const PARSER_VERSION=7;
+const PARSER_VERSION=8;
 const GLYPHS="☑☐◎◉■□✓✔●○";
 const isGlyph=s=>s.length===1&&GLYPHS.includes(s);
 const CHECKED=s=>s==="☑"||s==="◉"||s==="✓"||s==="✔"||s==="●";
 const LABEL_RE=/^(Valide|Faux|Indispensable|Inacceptable|Acceptable|Neutre)$/i;
 const COUNT_RE=/^\(?\d+$|^\(?\d+\s*Experts?\)?$|^Experts?\)$/i;
 const LETTER_RE=/^([A-Z])\.?$/;
-const SUPPORTED=new Set(["QRU","QRM","QRP","QRPL","QROC","TCS","ZONE"]);
-function typeFromLabel(t){t=t.toLowerCase();if(/concordance/.test(t))return"TCS";if(/d[ée]roulant/.test(t))return"QRP";if(/zone/.test(t))return"ZONE";if(/ouverte|courte/.test(t))return"QROC";if(/longue|liste/.test(t))return"QRPL";if(/pr[ée]cis/.test(t))return"QRP";if(/unique/.test(t))return"QRU";if(/multiples|réponses/.test(t))return"QRM";return"?"}
+const SUPPORTED=new Set(["QRU","QRM","QRP","QRPL","QROC","QVN","TCS","ZONE"]);
+function typeFromLabel(t){t=t.toLowerCase();if(/concordance/.test(t))return"TCS";if(/num[ée]rique/.test(t))return"QVN";if(/d[ée]roulant/.test(t))return"QRP";if(/zone/.test(t))return"ZONE";if(/ouverte|courte/.test(t))return"QROC";if(/longue|liste/.test(t))return"QRPL";if(/pr[ée]cis/.test(t))return"QRP";if(/unique/.test(t))return"QRU";if(/multiples|réponses/.test(t))return"QRM";return"?"}
 function normType(t){t=(t||"").toUpperCase();if(t==="QTCS"||t==="TCS")return"TCS";if(t==="QZONE")return"ZONE";return t}
 
 async function readPages(bytes){
-  const doc=await pdfjsLib.getDocument({data:bytes.slice()}).promise;const out=[];
+  const doc=await pdfjsLib.getDocument({isEvalSupported:false,data:bytes.slice()}).promise;const out=[];
   for(let p=1;p<=doc.numPages;p++){
     const page=await doc.getPage(p),vp=page.getViewport({scale:1});
     const items=(await page.getTextContent()).items.filter(it=>it.str&&it.str.trim()&&!/^[\uE000-\uF8FF\s]*$/.test(it.str)).map(it=>{
@@ -108,7 +108,7 @@ function coverImages(q,pages,items){
 }
 function makeRaster(bytes){ // rendu des pages pour lire la couleur des cases (navigateur)
   let docP=null;const cache=new Map();
-  return p=>{if(!cache.has(p))cache.set(p,(async()=>{docP=docP||pdfjsLib.getDocument({data:bytes.slice()}).promise;const doc=await docP;const page=await doc.getPage(p);const scale=2;const vp=page.getViewport({scale});
+  return p=>{if(!cache.has(p))cache.set(p,(async()=>{docP=docP||pdfjsLib.getDocument({isEvalSupported:false,data:bytes.slice()}).promise;const doc=await docP;const page=await doc.getPage(p);const scale=2;const vp=page.getViewport({scale});
     const cv=document.createElement("canvas");cv.width=Math.ceil(vp.width);cv.height=Math.ceil(vp.height);const ctx=cv.getContext("2d",{willReadFrequently:true});ctx.fillStyle="#fff";ctx.fillRect(0,0,cv.width,cv.height);
     await page.render({canvasContext:ctx,viewport:vp}).promise;const im=ctx.getImageData(0,0,cv.width,cv.height);return{data:im.data,width:cv.width,height:cv.height,scale}})());return cache.get(p)};
 }
@@ -187,6 +187,14 @@ async function parsePdf(bytes,o){
       const segs=bands([Q.head,...Q.items]);
       const res=fmt===1?parseQ1(Q,pages,warn):await parseQ2(Q,pages,warn,raster);
       if(!SUPPORTED.has(res.type)||(!res.opts.length&&!res.qroc&&!res.zone)){dropped.push({type:res.type||Q.type,n:Q.n,segs});continue}
+      if(/^(QRU|QRM|QRP|QRPL)$/.test(res.type)){
+        // QCM exporté de travers par UNESS (une seule proposition, propositions vides ou « Proposition 5 ») : mis de côté
+        const realOpts=res.opts.filter(o=>{const pg=pages[o.p-1];
+          const txt=Q.items.filter(x=>x.p===o.p&&(x.top+x.bot)/2>=o.t-1&&(x.top+x.bot)/2<=o.b+1&&x.x>=o.l-2&&x.x<pg.w*.62&&!LETTER_RE.test(x.s)&&!isGlyph(x.s)&&!/^(Valide|Faux|Indispensable|Inacceptable|Acceptable|Neutre)$/.test(x.s)).map(x=>x.s).join(" ").trim();
+          const pic=(pg.pics||[]).some(im=>im.l<o.r+pg.w*.5&&im.r>o.l&&im.t<o.b&&im.b>o.t);
+          return pic||(/[\p{L}\p{N}]/u.test(txt)&&!/^(Proposition\s*\d+|La réponse [A-Z])$/i.test(txt))});
+        if(realOpts.length<2){warn.push(`Q${Q.n} : moins de 2 vraies propositions (QCM mal exporté), mise de côté`);dropped.push({type:"props",n:Q.n,segs});continue}
+      }
       oc.qs.push({type:res.type,k:res.k,st:res.st,segs,opts:res.opts,hide:res.hide,qroc:res.qroc,...(res.col?{col:res.col}:{}),...(res.zone?{zone:res.zone}:{}),_end:res.endAt,_items:[Q.head,...Q.items]});
     }
     if(oc.qs.length)outCases.push(oc);else if(oc.enonce.length)dropped.push({type:"dossier",segs:oc.enonce});
@@ -373,6 +381,17 @@ async function parseQ2(Q,pages,warn,raster){
     mergeBlock(blk,"comment",W).forEach(m=>hide.push(m));i=j-1}
   const body=items.filter(x=>!inCom.has(x));
   if(type==="ZONE")return parseZone(Q,pages,body,hide,warn);
+  if(type==="QVN"){
+    // question à valeur numérique : « Réponse attendue » puis l'intervalle accepté « [ min ; max ] » dans la colonne de droite
+    const qh2=body.findIndex(x=>/^Réponses? attendues?$/.test(x.s));
+    const num=v=>+String(v).replace(/\s/g,"").replace(",",".");
+    const cells=qh2<0?[]:body.slice(qh2+1).filter(x=>x.x>W*.6&&/^\[?\s*-?[\d\s.,]+\s*;\s*-?[\d\s.,]+\s*\]?$/.test(x.s));
+    if(cells.length!==1){warn.push("QVN Q"+Q.n+" : intervalle attendu illisible");return{type:"?",opts,hide,qroc}}
+    const m=cells[0].s.replace(/[\[\]]/g,"").split(";").map(num);
+    if(m.length!==2||!m.every(Number.isFinite)||m[0]>m[1]){warn.push("QVN Q"+Q.n+" : intervalle attendu incohérent");return{type:"?",opts,hide,qroc}}
+    const qb=mergeBlock(cells,"qroc",W);qb.forEach(h=>hide.push(h));
+    return{type:"QVN",k:null,st,opts,hide,qroc:{ans:[m[0]===m[1]?String(m[0]).replace(".",","):`${String(m[0]).replace(".",",")} à ${String(m[1]).replace(".",",")}`],num:m},endAt:{p:qb[qb.length-1].p,y:qb[qb.length-1].b}};
+  }
   const qh=body.findIndex(x=>/^Réponses? attendues?$/.test(x.s));
   const glyphRows=body.filter(x=>isGlyph(x.s)&&x.x<W*.3);
   if(type==="?"||type==="QRM"&&qh>=0&&!glyphRows.length&&!body.some(x=>LETTER_RE.test(x.s)&&x.x<W*.12)){

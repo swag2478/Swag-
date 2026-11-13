@@ -11,6 +11,7 @@ function ckReveal(pages,fmt){
       else if(/^(Valide|Faux|Indispensable|Inacceptable|Acceptable|Neutre)(\s+[A-Z(].*)?$/.test(s))why="mention";
       else if(/^\(?\d*\s*Experts?\)?$/i.test(s)||/^\(\d+$/.test(s)&&nx&&/^Experts?\)/i.test(nx.s))why="experts";
       else if(/Zone\s*\d+\s*:/i.test(s))why="zone";
+      else if(/^\[\s*-?[\d\s.,]+;\s*-?[\d\s.,]+\]$/.test(s))why="valeur";
       else if(fmt===2&&/^\d+\s*\/\s*\d*$/.test(s)&&it.h<10&&it.top<pg.h*.94)why="experts";
       else if(fmt===1&&it.h<10&&!/^(Auteurs|Co-auteurs|Relecteurs|Date de création|Version|Page)/.test(s)&&!/^Référence/.test(s)&&!(s.length<=3&&its.some(o=>o!==it&&o.h>=10.5&&Math.abs(o.y-it.y)<9&&(Math.abs(o.x+o.w-it.x)<3.5||Math.abs(it.x+it.w-o.x)<3.5))))why="petit";
       if(fmt===1&&/^(Auteurs|Co-auteurs|Relecteurs|Date de création)/.test(s)){mode=null;continue}
@@ -31,7 +32,7 @@ function ckReveal(pages,fmt){
 }
 function ckCovered(it,rects){const x0=it.x,x1=it.x+Math.max(it.w,1),y0=it.top+1,y1=it.bot-1;let tot=0,ok=0;
   for(let i=0;i<=8;i++)for(let j=0;j<=4;j++){const x=x0+(x1-x0)*i/8,y=y0+(y1-y0)*j/4;tot++;if(rects.some(r=>x>=r.l&&x<=r.r&&y>=r.t&&y<=r.b))ok++}return ok/tot}
-async function ckRender(bytes){const doc=await pdfjsLib.getDocument({data:bytes.slice()}).promise;const cache=new Map();
+async function ckRender(bytes){const doc=await pdfjsLib.getDocument({isEvalSupported:false,data:bytes.slice()}).promise;const cache=new Map();
   return async p=>{if(cache.has(p))return cache.get(p);const page=await doc.getPage(p),sc=1.5,vp=page.getViewport({scale:sc});const cv=document.createElement("canvas");cv.width=Math.ceil(vp.width);cv.height=Math.ceil(vp.height);
     const ctx=cv.getContext("2d",{willReadFrequently:true});ctx.fillStyle="#fff";ctx.fillRect(0,0,cv.width,cv.height);await page.render({canvasContext:ctx,viewport:vp}).promise;const r={cv,sc};cache.set(p,r);return r}}
 function ckColored(ctx,sc,l,t,r,b,masks){ // pixels verts/rouges visibles dans [l,t,r,b] une fois les caches peints en blanc
@@ -63,6 +64,7 @@ async function evalA(A,pages,rev,bytes,opt){
     if(q.type==="QRM"&&q.opts.length<2)errs.push({m:`${tag} : ${q.opts.length} proposition(s)`,q:Q});
     if((q.type==="QRM"||q.type==="QRP"||q.type==="QRPL")&&nv===0)errs.push({m:`${tag} : aucune bonne réponse au corrigé`,q:Q});
     if((q.type==="QRP"||q.type==="QRPL")&&q.k&&nv!==q.k)warns.push(`${tag} : ${nv} cochées au corrigé pour ${q.k} attendues`);
+    if(q.type==="QVN"&&!(q.qroc&&q.qroc.num&&q.qroc.num.length===2))errs.push({m:`${tag} : valeur attendue non lue`,q:Q});
     if(q.type==="QROC"&&!(q.qroc&&q.qroc.ans.length))errs.push({m:`${tag} : QROC sans réponse lue`,q:Q});
     if(q.type==="TCS"&&!q.opts.some(o=>o.ex>0))errs.push({m:`${tag} : TCS sans réponse d'expert lue`,q:Q});
     const Ls=q.opts.map(o=>o.L).join(""),exp="ABCDEFGHIJKLMNOPQRSTUVWXYZ".slice(0,q.opts.length);if(Ls!==exp)errs.push({m:`${tag} : lettres ${Ls}`,q:Q})}));
