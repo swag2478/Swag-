@@ -261,7 +261,7 @@ function vAnnales(v){
   const list=all.filter(A=>(!V.annUE||ueOf(A)===V.annUE)&&(!q||norm(titleOf(A)+" "+A.session+" "+A.ue+" "+A.name).includes(q)));
   const groups=[...new Set(list.map(ueOf))];
   v.innerHTML=`<div class="page"><div class="head"><div><h2>Annales</h2><p>${pl(all.length,"annale")} · ${all.reduce((s,A)=>s+A.nq,0)} questions · classées par UE puis par année</p></div><span style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn red" type="button" data-add>Importer des PDF</button></span></div>
-   ${(()=>{const nz=all.reduce((t,A)=>t+((A.data&&A.data.dropped)||[]).filter(x=>x.type==="ZONE").length,0);return nz?`<p class="warn" style="margin:0 0 16px">${pl(nz,"question « zone à pointer » de tes annales est mise","questions « zone à pointer » de tes annales sont mises")} de côté : dans ces corrigés, la zone attendue n'est pas dessinée sur l'image (ou pas lisible), donc Swag ne peut pas corriger ton point. Les autres zones à pointer sont proposées normalement.</p>`:""})()}
+   ${(()=>{const nz=all.reduce((t,A)=>t+((A.data&&A.data.dropped)||[]).filter(x=>x.type==="ZONE").length,0);return nz?`<p class="warn" style="margin:0 0 16px">${pl(nz,"question « zone à pointer » de tes annales est mise","questions « zone à pointer » de tes annales sont mises")} de côté : dans ces corrigés, la zone attendue est incrustée dans l'image (ou pas lisible), donc Swag ne peut ni la masquer ni corriger ton point. En entraînement, quand tu arrives à l'une d'elles, Swag te propose de voir sa réponse ou de la passer (elle ne compte pas dans la note). Les autres zones à pointer sont proposées normalement.</p>`:""})()}
    ${S.pending.size?`<div class="resume" style="background:var(--raise)"><div>${pl(S.pending.size,"annale de ta sauvegarde attend","annales de ta sauvegarde attendent")} son PDF : réimporte les mêmes fichiers, Swag les reconnaît et y rattache ta progression.</div></div>`:""}
    ${all.length?`<div class="filt"><div class="seg wrap" role="group" aria-label="UE"><button type="button" data-u="" aria-pressed="${!V.annUE}">Toutes</button>${ues.map(u=>`<button type="button" data-u="${esc(u)}" aria-pressed="${V.annUE===u}">${esc(u)}</button>`).join("")}</div>
    <input type="search" id="annQ" placeholder="Chercher (UE, année, MM2…)" value="${esc(V.annQ)}" aria-label="Chercher une annale"></div>
@@ -362,10 +362,32 @@ function qtableHTML(){
     const st=a&&a.done&&play.mode!=="exam"?cls(a.s):a&&(a.sel&&a.sel.length||a.txt)?"rep":"";
     return`<button type="button" data-jump="${i}" class="${st}" ${i===play.i?'aria-current="true"':""} aria-label="Question ${i+1}">${i+1}</button>`}).join("")}</div></div>`}).join("");
 }
+
+/* zones à pointer que Swag n'a pas pu traiter : proposées entre deux questions (voir la réponse ou passer), sans note */
+const dzCache=new WeakMap();
+function dropZ(A){const D=A.data;if(dzCache.has(D))return dzCache.get(D);const m=new Map(),qs=[];
+  D.cases.forEach((cs,c)=>cs.qs.forEach((Q,q)=>qs.push({c,q,s:Q.segs[0]})));const lt=(a,b)=>a.p<b.p||a.p===b.p&&a.y0<b.y0;
+  (D.dropped||[]).filter(d=>d.type==="ZONE"&&d.segs&&d.segs.length).forEach(d=>{const nx=qs.find(x=>lt(d.segs[0],x.s));const k=nx?nx.c+":"+nx.q:"end";if(!m.has(k))m.set(k,[]);m.get(k).push(d)});
+  m.flat=qs.map(x=>x.c+":"+x.q);dzCache.set(D,m);return m}
+function zInter(A,list,cont){document.querySelector(".act")?.remove();if(play)play.key=null;const v=$("#view");let k=0;
+  const one=()=>{const d=list[k];
+    v.innerHTML=`<div class="page" style="max-width:880px"><div class="tag">${esc(titleOf(A))}</div><h2>Question « zone à pointer »${d.n?` (question ${d.n} du corrigé)`:""}</h2>
+     <p>Swag n'a pas encore pu traiter cette question : dans ce corrigé, la zone attendue est incrustée dans l'image, Swag ne peut donc ni la masquer ni corriger ton point.</p>
+     <p>Veux-tu voir la réponse de la zone à pointer ou passer la question ? Elle ne compte pas dans la note.</p>
+     <div class="row" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn red" type="button" id="zSee">Voir la réponse</button><button class="btn" type="button" id="zSkip">Passer la question</button></div>
+     <div class="crops done" id="zBox" style="margin-top:16px"></div></div>`;
+    $("#zSkip").onclick=()=>{k++;k<list.length?one():cont()};
+    $("#zSee").onclick=async()=>{$("#zSee").disabled=true;$("#zSkip").textContent="Continuer →";await cropsInto($("#zBox"),A,d.segs,[],true)};
+    scrollTo(0,0)};
+  one()}
 async function showQ(){
   const it=play.items[play.i],A=S.annales.get(it.a);
   if(!A||!qOf(it.a,it.c,it.q)){play.items.splice(play.i,1);play.ans.splice(play.i,1);if(!play.items.length){play=null;clearPlay();go("accueil");return}play.i=Math.min(play.i,play.items.length-1);return showQ()}
   const C=A.data.cases[it.c],Q=C.qs[it.q],prev=play.items[play.i-1],exam=play.mode==="exam";
+  const dz=exam?null:dropZ(A),zk=it.c+":"+it.q,zpre=dz&&dz.get(zk);play.zs=play.zs||[];
+  if(zpre&&!play.zs.includes(play.i)&&(!prev||prev.a===it.a&&dz.flat.indexOf(prev.c+":"+prev.q)===dz.flat.indexOf(zk)-1))
+    return zInter(A,zpre,()=>{play.zs.push(play.i);savePlay();showQ()});
+  const zend=dz&&dz.get("end")&&dz.flat[dz.flat.length-1]===zk&&!play.zs.includes("e"+play.i)?dz.get("end"):null;
   const newCase=!prev||prev.a!==it.a||prev.c!==it.c;
   const a=play.ans[play.i]||(play.ans[play.i]={sel:[],txt:"",done:false});
   const v=$("#view");document.querySelector(".act")?.remove();
@@ -425,7 +447,10 @@ async function showQ(){
     const qs=$(".qt-score");if(qs)qs.innerHTML=`Série : <b>${fr(sc,2)}</b> / ${n}`;
     if(Q.zone)showQ()}; // la zone attendue n'apparaît qu'une fois la question corrigée : nouveau rendu, page d'origine
   go.onclick=()=>{if(exam){if(input){a.txt=input.value}a.sel=[...sel];savePlay();play.i+1<play.items.length?jump(play.i+1):finish();return}
-    state.done?(play.i+1<play.items.length?jump(play.i+1):finish()):validate()};
+    const nextQ=()=>play.i+1<play.items.length?jump(play.i+1):finish();
+    if(!state.done)return validate();
+    if(zend)return zInter(A,zend,()=>{play.zs.push("e"+play.i);savePlay();nextQ()});
+    nextQ()};
   if(input)input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();go.click()}});
   play.key=e=>{if(e.target.tagName==="INPUT"||e.metaKey||e.ctrlKey||e.altKey)return;
     if(e.key==="Enter"){e.preventDefault();go.click();return}
