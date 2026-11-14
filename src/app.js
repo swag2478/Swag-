@@ -53,7 +53,7 @@ function scoreQ(Q,sel,txt){
   if(Q.qroc&&Q.qroc.num){const t=String(txt||"").replace(/\s/g,"").replace(",",".");const x=/^[-+]?\d+(\.\d+)?$/.test(t)?+t:NaN;if(!Number.isFinite(x))return{s:0,d:t?"Ce n'est pas un nombre":"Aucune réponse"};const ok=x>=Q.qroc.num[0]&&x<=Q.qroc.num[1];return{s:ok?1:0,d:ok?"Valeur dans l'intervalle attendu":"Valeur hors de l'intervalle attendu"}}
   if(Q.qroc){const ok=!!norm(txt)&&Q.qroc.ans.some(a=>norm(a)===norm(txt));return{s:ok?1:0,d:ok?"Réponse acceptée":"Réponse non reconnue"}}
   if(Q.type==="TCS"){const mx=Math.max(1,...Q.opts.map(o=>o.ex||0));if(!sel.size)return{s:0,d:"Aucune réponse"};const i=[...sel][0],e=Q.opts[i].ex||0;return{s:e/mx,d:`${pl(e,"expert")} sur ${Q.opts.reduce((s,o)=>s+(o.ex||0),0)} ont choisi cette réponse`}}
-  const disc=Q.opts.filter((o,i)=>!!o.v!==sel.has(i)).length;
+  const disc=Q.opts.filter((o,i)=>!o.neut&&!!o.v!==sel.has(i)).length;   // une proposition neutralisée ne compte pas
   if(Q.type==="QRU")return{s:disc?0:1,d:disc?"Mauvaise réponse":"Bonne réponse"};
   if(Q.type==="QRPL"||Q.type==="QRP"){
     const k=Q.k||Q.opts.filter(o=>o.v).length,n=sel.size,good=Q.opts.filter((o,i)=>o.v&&sel.has(i)).length;
@@ -322,8 +322,8 @@ async function cropEl(A,seg,overlays,raw){
 function makeOverlays(Q,sel,interactive){
   const ov=[];
   Q.opts.forEach((o,i)=>{const el=document.createElement(interactive?"button":"span");if(interactive)el.type="button";
-    el.className="opt "+(o.v?"v":"f")+(single(Q)?" round":"")+(sel.has(i)?" sel":"")+(o.nl?" nl":"");
-    el.innerHTML=`<span class="box"></span>${o.nl?"":`<span class="lt">${esc(o.L)}</span>`}${o.ex!=null&&!o.nl?`<span class="exn">${o.ex}</span>`:""}`;
+    el.className="opt "+(o.v?"v":"f")+(single(Q)?" round":"")+(sel.has(i)?" sel":"")+(o.nl?" nl":"")+(o.neut?" neut":"");if(o.neut&&interactive)el.disabled=true;
+    el.innerHTML=o.neut?`<span class="neutl">Neutralisée</span>`:`<span class="box"></span>${o.nl?"":`<span class="lt">${esc(o.L)}</span>`}${o.ex!=null&&!o.nl?`<span class="exn">${o.ex}</span>`:""}`;
     if(interactive){el.setAttribute("aria-label","Proposition "+o.L);el.setAttribute("aria-pressed",String(sel.has(i)))}
     ov.push({...o,el,i})});
   (Q.hide||[]).forEach(h=>{const m=document.createElement("div");m.className="mask k-"+h.kind;if(h.kind==="qroc")m.textContent="Réponse masquée";ov.push({...h,el:m})});
@@ -392,7 +392,7 @@ async function showQ(){
   stopChrono();
   if(exam){const tick=()=>{if(!play||play.mode!=='exam'){stopChrono();return}const left=(play.limit-Date.now())/1000;["#chrono1","#chrono2"].forEach(s=>{const e=$(s);if(e){e.textContent=mmss(left);e.classList.toggle("urgent",left<=60)}});if(left<=0){stopChrono();toast("Temps écoulé : l'examen est terminé.");finish()}};tick();chronoId=setInterval(tick,500)}
   const sel=new Set(a.sel||[]),ov=makeOverlays(Q,sel,true),state={done:!!a.done&&!exam};
-  ov.forEach(o=>{if(o.i==null)return;o.el.onclick=()=>{if(state.done)return;
+  ov.forEach(o=>{if(o.i==null||o.neut)return;o.el.onclick=()=>{if(state.done)return;
     if(single(Q)&&!sel.has(o.i)){sel.clear();ov.forEach(x=>{if(x.i!=null){x.el.classList.remove("sel");x.el.setAttribute("aria-pressed","false")}})}
     sel.has(o.i)?sel.delete(o.i):sel.add(o.i);o.el.classList.toggle("sel",sel.has(o.i));o.el.setAttribute("aria-pressed",String(sel.has(o.i)));
     if(exam){a.sel=[...sel];savePlay();refreshTable()}}});

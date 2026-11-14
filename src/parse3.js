@@ -5,7 +5,7 @@
    2 « Réponse attendue » : Question N + type en toutes lettres à droite ; lettre, case ■/☑, texte ; QROC « Réponse attendue » ; TCS avec réponses des experts.
    Sortie par question : segs (zones à afficher), opts (cases cliquables), hide (zones masquées), qroc (réponses acceptées), type, k.
 */
-const PARSER_VERSION=8;
+const PARSER_VERSION=9;
 const GLYPHS="☑☐◎◉■□✓✔●○";
 const isGlyph=s=>s.length===1&&GLYPHS.includes(s);
 const CHECKED=s=>s==="☑"||s==="◉"||s==="✓"||s==="✔"||s==="●";
@@ -160,7 +160,7 @@ async function parsePdf(bytes,o){
     items.forEach(it=>stream.push(it));
   }
   const W=p=>pages[p-1].w;
-  const isQHead=(it,i)=>it.x<W(it.p)*.2&&(fmt===1?(/^Question\s*\d+\s*:?/.test(it.s)||it.s==="Question"&&stream[i+1]&&stream[i+1].p===it.p&&sameLine(stream[i+1],it)&&/^\d+\s*:?$/.test(stream[i+1].s)):/^Question\s*\d+$/.test(it.s));
+  const isQHead=(it,i)=>it.x<W(it.p)*.2&&(fmt===1?it.h>=10&&(/^Question\s*\d+\s*:?/.test(it.s)||it.s==="Question"&&stream[i+1]&&stream[i+1].p===it.p&&sameLine(stream[i+1],it)&&/^\d+\s*:?$/.test(stream[i+1].s)):/^Question\s*\d+$/.test(it.s));
   const isCaseMark=it=>fmt===1?!!it.caseMark:it.x<W(it.p)*.3&&(/^DP\s*\d+\s*[-–]/i.test(it.s)||/^QI\s*\d+\s*[-–]/i.test(it.s)||/^Questions isolées/i.test(it.s));
   const cases=[];let c=null,q=null;
   const newCase=(mark)=>{c={pre:[],qs:[],qi:!!(mark&&/^QI|isolées/i.test(mark.s))};cases.push(c);q=null};
@@ -381,7 +381,9 @@ async function parseQ2(Q,pages,warn,raster){
   const isLet=x=>x.x<W*.12&&/^[A-Z]$/.test(x.s);
   const inCom=new Set();
   for(let i=0;i<items.length;i++){if(!(/^Commentaire/i.test(items[i].s)&&items[i].x<W*.3))continue;
-    let j=i;const blk=[];while(j<items.length&&(j===i||!(isLet(items[j])||/^Commentaire/i.test(items[j].s)&&items[j].x<W*.3))){blk.push(items[j]);inCom.add(items[j]);j++}
+    // commentaire de la question : il clôt la question, il va jusqu'au bout (une ligne « F » ou « V » dedans n'est pas une proposition)
+    const ofQ=/de la question/i.test(items.slice(i,i+6).filter(x=>x.p===items[i].p&&sameLine(x,items[i])).map(x=>x.s).join(" "));
+    let j=i;const blk=[];while(j<items.length&&(j===i||ofQ||!(isLet(items[j])||/^Commentaire/i.test(items[j].s)&&items[j].x<W*.3))){blk.push(items[j]);inCom.add(items[j]);j++}
     mergeBlock(blk,"comment",W).forEach(m=>hide.push(m));i=j-1}
   const body=items.filter(x=>!inCom.has(x));
   if(type==="ZONE")return parseZone(Q,pages,body,hide,warn);
@@ -412,6 +414,12 @@ async function parseQ2(Q,pages,warn,raster){
     if(qh<0)return{type,opts,hide,qroc:null};
     const block=body.slice(qh+1).filter(x=>x.x<W*.6);
     qroc={ans:block.flatMap(x=>x.s.split(/[;\/]/)).map(s=>s.trim()).filter(s=>/[\p{L}\p{N}]/u.test(s))};
+    if(!qroc.ans.length){
+      // « Réponse attendue » vide : certains corrigés écrivent la réponse (un mot, un nombre) seule dans le commentaire
+      const com=items.filter(x=>inCom.has(x)&&!/^Commentaire/i.test(x.s)&&!/^de correction|^de la question/i.test(x.s));
+      const txt=com.map(x=>x.s).join(" ").replace(/\s+/g," ").trim();
+      if(txt&&txt.length<=40&&txt.split(" ").length<=5&&!/[.:]$/.test(txt))qroc={ans:[txt,...txt.split(/[;\/,]/).map(s=>s.trim())].filter((s,i,a)=>s&&a.indexOf(s)===i),fromCom:1};
+    }
     const qb=mergeBlock(block,"qroc",W);qb.forEach(m=>hide.push(m));const lb=qb[qb.length-1];
     return{type,k:null,st,opts,hide,qroc,endAt:lb?{p:lb.p,y:lb.b}:null};
   }
@@ -445,7 +453,8 @@ async function parseQ2(Q,pages,warn,raster){
     const bot=Math.max(L.bot,...cell.map(x=>x.bot));
     const o=R(L.p,L.x+L.w+6,L.top-4,tx-5,bot+4,{L:L.s,nl:1});
     if(/INDISPENSABLE/i.test(lab))o.ind=1;if(/INACCEPTABLE/i.test(lab))o.inac=1;
-    if(g)o.v=CHECKED(g.s)?1:0;
+    if(/Neutralis/i.test(lab)){o.v=0;o.neut=1}   // proposition neutralisée par la faculté : affichée, ne compte pas
+    else if(g)o.v=CHECKED(g.s)?1:0;
     else{
       if(!raster){warn.push("cases dessinées : lecture d'image nécessaire Q"+Q.n);return{type:"?",opts:[],hide,qroc}}
       const ras=await raster(L.p);const sc=ras.scale,d=ras.data,wid=ras.width;let gr=0,rd=0;
