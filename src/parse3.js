@@ -347,7 +347,9 @@ function parseZone(Q,pages,body,hide,warn){
   const sq=[];for(let p=leg.p;p<=Math.min(leg.p+1,pages.length);p++)(pages[p-1].squares||[]).forEach(q=>{if(p>leg.p||q.t>leg.bot-2)sq.push({...q,p})});
   const rest=body.filter(x=>x.p>leg.p||x.p===leg.p&&x.top>leg.bot-1).filter(x=>x.p<=leg.p+1);
   const lines=[],cnts=[];for(const x of rest){if(isCnt(x)){cnts.push(x);continue}if(isNum(x)&&cnts.length&&sameLine(x,cnts[cnts.length-1]))continue;
-    if(/^(Question|Commentaire|Réponse|Référence)/i.test(x.s)||/^\d+\/\d+$/.test(x.s.trim()))break;if(!/[\p{L}\p{N}]/u.test(x.s))continue;
+    const hasSq=sq.some(q=>q.p===x.p&&q.r<=x.x+2&&Math.abs((q.t+q.b)/2-(x.top+x.bot)/2)<8);
+    // un élément peut s'appeler « Réponse » : il a son carré de couleur, contrairement au titre « Réponse attendue »
+    if(!hasSq&&/^(Question|Commentaire|Réponse|Référence)/i.test(x.s.trim())||/^\d+\/\d+$/.test(x.s.trim()))break;if(!/[\p{L}\p{N}]/u.test(x.s))continue;
     if(lines.length>cnts.length){const L=lines[lines.length-1]; // nom sur deux lignes : on le recolle
       if(x.p===L.it.p&&x.top-L.bot<16&&x.x>=L.it.x-4){L.name+=" "+x.s.trim();L.bot=x.bot;continue}break}
     // un nouvel élément a toujours son carré de couleur : une ligne sans carré après le premier élément n'en fait plus partie
